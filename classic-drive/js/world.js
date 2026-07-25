@@ -63,28 +63,32 @@ const World = (() => {
     }
 
     stars = [];
-    for (let i = 0; i < 16; i++) spawnStar(stars[i] = {});
+    for (let i = 0; i < 42; i++) spawnStar(stars[i] = {});
   }
 
   function spawnStar(st) {
     let x, z, ok = false, tries = 0;
     while (!ok && tries++ < 30) {
-      x = rnd(-HALF * 0.9, HALF * 0.9);
-      z = rnd(-HALF * 0.9, HALF * 0.9);
+      x = rnd(-HALF * 0.92, HALF * 0.92);
+      z = rnd(-HALF * 0.92, HALF * 0.92);
       ok = Math.hypot(x - pond.x, z - pond.z) > pond.r + 2;
     }
     st.x = x; st.z = z;
     st.taken = false;
     st.phase = Math.random() * Math.PI * 2;
+    st.color = STAR_COLORS[(Math.random() * STAR_COLORS.length) | 0];
   }
 
-  // Octahedron "star" gem.
-  const STAR = (() => {
+  // Octahedron "star" gems, in lots of happy colours.
+  const STAR_COLORS = ['#ffd83b', '#ff5d73', '#4ec3ff', '#8cff5b', '#c77dff', '#ff9f43', '#ff7ac0'];
+  function makeStar(color) {
     const s = 0.55, y = 1.4;
     const V = [[0, y + s, 0], [0, y - s, 0], [s, y, 0], [-s, y, 0], [0, y, s], [0, y, -s]];
     const F = [[0, 2, 4], [0, 4, 3], [0, 3, 5], [0, 5, 2], [1, 4, 2], [1, 3, 4], [1, 5, 3], [1, 2, 5]];
-    return F.map((f) => ({ v: f.map((i) => V[i]), color: '#ffd83b' }));
-  })();
+    return F.map((f) => ({ v: f.map((i) => V[i]), color }));
+  }
+  const STAR_MODELS = {};
+  STAR_COLORS.forEach((c) => { STAR_MODELS[c] = makeStar(c); });
 
   function render(carX, carZ, carYaw, t) {
     // ground tiles centred on the car (looks endless)
@@ -151,11 +155,12 @@ const World = (() => {
       }
     }
 
-    // stars (spin + gentle bob)
+    // stars (spin + gentle bob), each in its own colour
     for (const st of stars) {
       if (st.taken) continue;
       const bob = Math.sin(t * 2.5 + st.phase) * 0.25;
-      Engine.addModel(STAR, st.x, bob, st.z, t * 2 + st.phase);
+      Engine.addModel(STAR_MODELS[st.color] || STAR_MODELS[STAR_COLORS[0]],
+        st.x, bob, st.z, t * 2 + st.phase);
     }
   }
 

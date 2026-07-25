@@ -75,8 +75,8 @@
   const HEAD_R = 15;           // player/enemy head radius
   const BASE_SPEED = 132;      // units / second
   const BOOST_SPEED = 235;
-  const TURN_RATE = 4.2;       // radians / second the heading can swing
-  const FOOD_COUNT = 440;      // fruit orbs kept alive in the world
+  const TURN_RATE = 6.2;       // radians / second the heading can swing
+  const FOOD_COUNT = 170;      // fruit orbs kept alive in the world
   const AI_COUNT = 9;          // enemy snakes kept alive
   const START_SEGS = 10;
 
@@ -140,6 +140,7 @@
     const angle = rnd(0, Math.PI * 2);
     const s = {
       x, y, angle, targetAngle: angle, color, isPlayer,
+      headR: isPlayer ? 15 : 13, bodyR: isPlayer ? 13 : 11,
       segCount: segs, alive: true, boosting: false, boostDrain: 0,
       path: [], pathAcc: 0, aiTimer: rnd(0.5, 2), respawn: 0,
     };
@@ -150,8 +151,8 @@
     return s;
   }
 
-  function spawnFoodAt(x, y, c, r) {
-    foods.push({ x: wrap(x), y: wrap(y), c: c || FRUIT[(Math.random() * FRUIT.length) | 0], r: r || rnd(5, 7) });
+  function spawnFoodAt(x, y, c, r, val) {
+    foods.push({ x: wrap(x), y: wrap(y), c: c || FRUIT[(Math.random() * FRUIT.length) | 0], r: r || rnd(5, 7), val: val || 1 });
   }
 
   function farFromPlayer(x, y) {
@@ -201,15 +202,30 @@
   }
 
   // ---- input -------------------------------------------------------
-  let pointer = null; // {x,y} screen position while steering
-  function pointerAngle() {
-    if (!pointer) return null;
-    return Math.atan2(pointer.y - H / 2, pointer.x - W / 2);
+  // Touch = floating joystick (aim relative to where the finger first
+  // touched, so any direction is comfortable). Mouse = aim toward cursor
+  // (hover, no click needed). A small dead zone stops jitter.
+  const DEAD = 14;
+  let touchOrigin = null, steerAngle = null;
+  function updateSteer(originX, originY, x, y) {
+    const dx = x - originX, dy = y - originY;
+    if (Math.hypot(dx, dy) < DEAD) return;
+    steerAngle = Math.atan2(dy, dx);
   }
-  canvas.addEventListener('pointerdown', (e) => { initAudio(); pointer = { x: e.clientX, y: e.clientY }; });
-  canvas.addEventListener('pointermove', (e) => { if (pointer || e.buttons) pointer = { x: e.clientX, y: e.clientY }; });
-  canvas.addEventListener('pointerup', () => { pointer = null; });
-  canvas.addEventListener('pointerleave', () => { pointer = null; });
+  canvas.addEventListener('pointerdown', (e) => {
+    initAudio();
+    if (e.pointerType === 'mouse') { updateSteer(W / 2, H / 2, e.clientX, e.clientY); }
+    else { touchOrigin = { x: e.clientX, y: e.clientY }; }
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'mouse') { updateSteer(W / 2, H / 2, e.clientX, e.clientY); }
+    else if (touchOrigin) { updateSteer(touchOrigin.x, touchOrigin.y, e.clientX, e.clientY); }
+  });
+  const endTouch = () => { touchOrigin = null; }; // keep last steerAngle
+  canvas.addEventListener('pointerup', endTouch);
+  canvas.addEventListener('pointercancel', endTouch);
+  canvas.addEventListener('pointerleave', endTouch);
+  function pointerAngle() { return steerAngle; }
 
   const keys = {};
   window.addEventListener('keydown', (e) => {
@@ -298,26 +314,28 @@
   }
 
   function eatFood(s) {
-    const rr = (HEAD_R + 8) * (HEAD_R + 8);
+    const rr = (s.headR + 9) * (s.headR + 9);
     for (let i = foods.length - 1; i >= 0; i--) {
       const f = foods[i];
       const dx = wd(f.x, s.x), dy = wd(f.y, s.y);
       if (dx * dx + dy * dy < rr) {
         foods.splice(i, 1);
-        s.segCount++;
+        s.segCount += f.val || 1;
         if (s.isPlayer) { updateScore(); sfxEat(); }
-        if (farFromPlayer(rnd(0, WORLD), 0)) spawnFoodAt(rnd(0, WORLD), rnd(0, WORLD));
-        else spawnFoodAt(rnd(0, WORLD), rnd(0, WORLD));
       }
     }
   }
 
   function killSnake(s) {
     s.alive = false;
-    // scatter its body as food
-    for (let i = 0; i < (s._segs || []).length; i += 2) {
-      const p = s._segs[i];
-      spawnFoodAt(p.x + rnd(-4, 4), p.y + rnd(-4, 4), s.color, rnd(6, 8));
+    // scatter its body into a wide, high-value blob (not a thin line), so
+    // one sweep through the area picks up lots without retracing a path
+    const segs = s._segs || [];
+    const count = Math.max(4, Math.round(s.segCount * 0.7));
+    for (let i = 0; i < count && segs.length; i++) {
+      const p = segs[(Math.random() * segs.length) | 0];
+      const a = rnd(0, Math.PI * 2), rad = rnd(0, 46);
+      spawnFoodAt(p.x + Math.cos(a) * rad, p.y + Math.sin(a) * rad, s.color, rnd(7, 10), 2);
     }
     if (s.isPlayer) gameOver();
     else s.respawn = rnd(1.5, 3.5);
@@ -330,7 +348,8 @@
         if (o === s || !o.alive) continue;
         if (Math.abs(wd(o.x, s.x)) > 260 || Math.abs(wd(o.y, s.y)) > 260) continue;
         const segs = o._segs || [];
-        const kill = (HEAD_R + 9) * (HEAD_R + 9);
+        // contact when the drawn head circle overlaps the drawn body circle
+        const kr = s.headR + o.bodyR, kill = kr * kr;
         for (let i = 1; i < segs.length; i++) {
           const dx = wd(segs[i].x, s.x), dy = wd(segs[i].y, s.y);
           if (dx * dx + dy * dy < kill) { killSnake(s); break; }
@@ -344,8 +363,8 @@
     for (const s of snakes) {
       if (!s.alive) { s.respawn -= dt; continue; }
       if (s.isPlayer) {
-        const pa = pointerAngle(); const ka = keyAngle();
-        if (pa !== null) s.targetAngle = pa; else if (ka !== null) s.targetAngle = ka;
+        const ka = keyAngle(); const pa = pointerAngle();
+        if (ka !== null) s.targetAngle = ka; else if (pa !== null) s.targetAngle = pa;
       } else {
         aiThink(s, dt);
       }
@@ -402,19 +421,19 @@
   function drawSnake(s) {
     const segs = s._segs || [];
     if (!segs.length) return;
-    const r = (s.isPlayer ? HEAD_R : HEAD_R - 2);
+    const br = s.bodyR;
     // body, tail -> head so the head overlaps
     for (let i = segs.length - 1; i >= 1; i--) {
       const [sx, sy] = toScreen(segs[i].x, segs[i].y);
       if (sx < -30 || sy < -30 || sx > W + 30 || sy > H + 30) continue;
       ctx.fillStyle = s.color;
-      ctx.beginPath(); ctx.arc(sx, sy, r * zoom, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(sx, sy, br * zoom, 0, 7); ctx.fill();
       ctx.fillStyle = 'rgba(255,255,255,.30)';
-      ctx.beginPath(); ctx.arc(sx, sy, r * zoom * 0.42, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(sx, sy, br * zoom * 0.42, 0, 7); ctx.fill();
     }
     // head with a cute face
     const [hx, hy] = toScreen(segs[0].x, segs[0].y);
-    const hr = (r + 2) * zoom;
+    const hr = s.headR * zoom;
     ctx.fillStyle = s.color;
     ctx.beginPath(); ctx.arc(hx, hy, hr, 0, 7); ctx.fill();
     const a = s.angle, px = Math.cos(a), py = Math.sin(a), qx = -py, qy = px;
@@ -449,6 +468,7 @@
   function start() {
     initAudio();
     reset();
+    steerAngle = null; touchOrigin = null;
     state = 'play'; last = 0;
     document.getElementById('title').classList.add('hidden');
     document.getElementById('over').classList.add('hidden');
@@ -471,6 +491,7 @@
     get state() { return state; },
     get len() { return player ? player.segCount : 0; },
     get foods() { return foods.length; },
+    get deathFood() { return foods.filter((f) => (f.val || 1) > 1).map((f) => ({ x: f.x, y: f.y })); },
     get enemies() { return snakes.filter((s) => !s.isPlayer && s.alive).length; },
     get head() { return player ? { x: player.x, y: player.y } : null; },
     get angle() { return player ? player.angle : 0; },

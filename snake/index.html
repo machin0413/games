@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>ヘビさんスネーク</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { width: 100%; height: 100%; overflow: hidden;
+    font-family: "Hiragino Maru Gothic ProN", "Rounded Mplus 1c", system-ui, sans-serif;
+    user-select: none; -webkit-user-select: none; touch-action: none;
+    background: #6fce4e; }
+  #wrap { position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: flex-start;
+    background: linear-gradient(160deg, #8ee06a 0%, #5cc142 100%); }
+
+  /* ---- HUD ---- */
+  #hud { width: 100%; max-width: 560px; padding: 12px 18px; display: flex;
+    align-items: center; justify-content: space-between; gap: 10px; }
+  #score { font-size: 34px; font-weight: 900; color: #fff;
+    text-shadow: 0 3px 0 #2f9e2f, 0 5px 6px rgba(0,0,0,.2); }
+  #best { font-size: 16px; font-weight: 800; color: #2b6b25; }
+  #btn-mute { font-size: 22px; width: 46px; height: 46px; border: none;
+    border-radius: 50%; background: rgba(255,255,255,.8); box-shadow: 0 4px 0 rgba(0,0,0,.12); }
+
+  /* ---- board ---- */
+  #board-wrap { position: relative; }
+  #board { display: block; background: #cdeeb0; border-radius: 16px;
+    box-shadow: 0 10px 0 rgba(0,0,0,.12), inset 0 0 0 6px #b7e396; touch-action: none; }
+
+  /* ---- D-pad ---- */
+  #pad { margin-top: 14px; display: grid; grid-template-columns: repeat(3, 74px);
+    grid-template-rows: repeat(3, 74px); gap: 8px; }
+  .dbtn { border: none; border-radius: 18px; font-size: 34px; color: #fff;
+    background: #ff9f43; box-shadow: 0 5px 0 #d97e20; display: flex;
+    align-items: center; justify-content: center; touch-action: none; }
+  .dbtn:active { transform: translateY(3px); box-shadow: 0 2px 0 #d97e20; }
+  #d-up { grid-column: 2; grid-row: 1; }
+  #d-left { grid-column: 1; grid-row: 2; }
+  #d-right { grid-column: 3; grid-row: 2; }
+  #d-down { grid-column: 2; grid-row: 3; }
+
+  /* ---- overlays ---- */
+  .overlay { position: absolute; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 18px; text-align: center;
+    background: rgba(20, 60, 20, .55); border-radius: 16px; padding: 20px; }
+  .overlay h1 { color: #fff; font-size: clamp(26px, 7vw, 44px); font-weight: 900;
+    text-shadow: 0 4px 0 #2f9e2f, 0 7px 8px rgba(0,0,0,.25); line-height: 1.15; }
+  .overlay .msg { color: #fff; font-size: 20px; font-weight: 800; }
+  .bigbtn { border: none; background: #ffcf33; color: #7a4a00; font-size: 28px;
+    font-weight: 900; padding: 14px 44px; border-radius: 34px;
+    box-shadow: 0 6px 0 #d9a916; cursor: pointer; }
+  .bigbtn:active { transform: translateY(3px); box-shadow: 0 3px 0 #d9a916; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+  <div id="wrap">
+    <div id="hud">
+      <div id="score">🍎 0</div>
+      <div id="best">さいこう: 0</div>
+      <button id="btn-mute">🔊</button>
+    </div>
+
+    <div id="board-wrap">
+      <canvas id="board" width="420" height="420"></canvas>
+
+      <div id="title" class="overlay">
+        <h1>ヘビさん<br>スネーク</h1>
+        <div class="msg">フルーツをたべて<br>のびのび！</div>
+        <button id="btn-start" class="bigbtn">スタート！</button>
+      </div>
+
+      <div id="over" class="overlay hidden">
+        <h1>ゲームオーバー</h1>
+        <div class="msg" id="over-msg">たべた フルーツ: 0</div>
+        <button id="btn-retry" class="bigbtn">もういちど</button>
+      </div>
+    </div>
+
+    <div id="pad">
+      <button id="d-up" class="dbtn">▲</button>
+      <button id="d-left" class="dbtn">◀</button>
+      <button id="d-right" class="dbtn">▶</button>
+      <button id="d-down" class="dbtn">▼</button>
+    </div>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---- config ------------------------------------------------------
+  const N = 17;                 // grid is N x N cells
+  const START_MS = 200;         // tick interval at the start
+  const MIN_MS = 90;            // fastest tick
+  const SPEEDUP_EVERY = 3;      // eat this many fruits to speed up a notch
+  const SPEEDUP_STEP = 8;       // ms shaved off per notch
+
+  const canvas = document.getElementById('board');
+  const ctx = canvas.getContext('2d');
+
+  // fit the board to the screen (square), crisp on hi-dpi
+  let cell = 24, DPR = Math.min(2, window.devicePixelRatio || 1);
+  function fit() {
+    const pad = 24;
+    const avail = Math.min(window.innerWidth - pad,
+                           window.innerHeight - 260); // leave room for HUD + pad
+    const size = Math.max(210, Math.min(460, avail));
+    cell = Math.floor(size / N);
+    const px = cell * N;
+    canvas.style.width = px + 'px';
+    canvas.style.height = px + 'px';
+    canvas.width = px * DPR;
+    canvas.height = px * DPR;
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    if (state !== 'play') draw();
+  }
+  window.addEventListener('resize', fit);
+
+  // ---- audio -------------------------------------------------------
+  let actx = null, master = null, muted = false;
+  function initAudio() {
+    if (actx) return;
+    try {
+      actx = new (window.AudioContext || window.webkitAudioContext)();
+      master = actx.createGain();
+      master.gain.value = muted ? 0 : 0.5;
+      master.connect(actx.destination);
+    } catch (e) { actx = null; }
+  }
+  function beep(freq, dur, type = 'sine', vol = 0.4, at = 0) {
+    if (!actx) return;
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.value = freq; o.connect(g); g.connect(master);
+    const t0 = actx.currentTime + at;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+  function sfxEat() { beep(660, 0.09, 'square', 0.4); beep(990, 0.10, 'square', 0.4, 0.06); }
+  function sfxTurn() { beep(420, 0.04, 'sine', 0.15); }
+  function sfxOver() { beep(300, 0.18, 'sawtooth', 0.4); beep(200, 0.22, 'sawtooth', 0.4, 0.14); beep(120, 0.3, 'sawtooth', 0.4, 0.3); }
+
+  document.getElementById('btn-mute').addEventListener('click', () => {
+    muted = !muted;
+    if (master) master.gain.value = muted ? 0 : 0.5;
+    document.getElementById('btn-mute').textContent = muted ? '🔇' : '🔊';
+  });
+
+  // ---- game state --------------------------------------------------
+  let snake, dir, nextDir, food, score, tickMs, state, acc, last;
+  const BEST_KEY = 'hebisan-best';
+  let best = +(localStorage.getItem(BEST_KEY) || 0);
+  document.getElementById('best').textContent = 'さいこう: ' + best;
+
+  const FRUITS = ['#ff5d5d', '#ff8fbf', '#ffb23e', '#b06bff']; // apple, peach, orange, grape
+
+  function reset() {
+    const mid = (N / 2) | 0;
+    snake = [{ x: mid - 1, y: mid }, { x: mid - 2, y: mid }, { x: mid - 3, y: mid }];
+    dir = { x: 1, y: 0 };
+    nextDir = { x: 1, y: 0 };
+    score = 0; tickMs = START_MS; acc = 0;
+    placeFood();
+    updateScore();
+  }
+
+  function placeFood() {
+    let x, y, ok;
+    do {
+      x = (Math.random() * N) | 0; y = (Math.random() * N) | 0;
+      ok = !snake.some((s) => s.x === x && s.y === y);
+    } while (!ok);
+    food = { x, y, c: FRUITS[(Math.random() * FRUITS.length) | 0] };
+  }
+
+  function updateScore() { document.getElementById('score').textContent = '🍎 ' + score; }
+
+  // ---- input -------------------------------------------------------
+  function setDir(x, y) {
+    // ignore reversals straight back onto the neck
+    if (x === -dir.x && y === -dir.y) return;
+    if (x === nextDir.x && y === nextDir.y) return;
+    nextDir = { x, y };
+    if (state === 'play') sfxTurn();
+  }
+  const KEYMAP = {
+    ArrowUp: [0, -1], w: [0, -1], ArrowDown: [0, 1], s: [0, 1],
+    ArrowLeft: [-1, 0], a: [-1, 0], ArrowRight: [1, 0], d: [1, 0],
+  };
+  window.addEventListener('keydown', (e) => {
+    const m = KEYMAP[e.key];
+    if (!m) return;
+    e.preventDefault();
+    initAudio();
+    setDir(m[0], m[1]);
+  });
+  function padBtn(id, x, y) {
+    const el = document.getElementById(id);
+    el.addEventListener('pointerdown', (e) => { e.preventDefault(); initAudio(); setDir(x, y); });
+  }
+  padBtn('d-up', 0, -1); padBtn('d-down', 0, 1);
+  padBtn('d-left', -1, 0); padBtn('d-right', 1, 0);
+
+  // swipe on the board
+  let sx = 0, sy = 0, sactive = false;
+  canvas.addEventListener('pointerdown', (e) => { sactive = true; sx = e.clientX; sy = e.clientY; initAudio(); });
+  canvas.addEventListener('pointerup', (e) => {
+    if (!sactive) return; sactive = false;
+    const dx = e.clientX - sx, dy = e.clientY - sy;
+    if (Math.abs(dx) < 18 && Math.abs(dy) < 18) return;
+    if (Math.abs(dx) > Math.abs(dy)) setDir(dx > 0 ? 1 : -1, 0);
+    else setDir(0, dy > 0 ? 1 : -1);
+  });
+
+  // ---- loop --------------------------------------------------------
+  function step() {
+    dir = nextDir;
+    const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+
+    // wall or self collision -> game over
+    const hitWall = head.x < 0 || head.y < 0 || head.x >= N || head.y >= N;
+    const hitSelf = snake.some((s, i) => i < snake.length - 1 && s.x === head.x && s.y === head.y);
+    if (hitWall || hitSelf) { gameOver(); return; }
+
+    snake.unshift(head);
+
+    if (head.x === food.x && head.y === food.y) {
+      score++; updateScore(); sfxEat();
+      if (score % SPEEDUP_EVERY === 0) tickMs = Math.max(MIN_MS, tickMs - SPEEDUP_STEP);
+      placeFood();
+    } else {
+      snake.pop();
+    }
+  }
+
+  function frame(ts) {
+    if (state !== 'play') return;
+    if (!last) last = ts;
+    acc += ts - last; last = ts;
+    let moved = false;
+    while (acc >= tickMs) { acc -= tickMs; step(); moved = true; if (state !== 'play') break; }
+    if (state === 'play') { draw(); requestAnimationFrame(frame); }
+  }
+
+  // ---- drawing -----------------------------------------------------
+  function rrect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function draw() {
+    const px = cell * N;
+    // board background with subtle checker
+    ctx.clearRect(0, 0, px, px);
+    for (let y = 0; y < N; y++) {
+      for (let x = 0; x < N; x++) {
+        ctx.fillStyle = ((x + y) & 1) ? '#cdeeb0' : '#c4e8a2';
+        ctx.fillRect(x * cell, y * cell, cell, cell);
+      }
+    }
+
+    // food (a round fruit with a little leaf)
+    drawFruit(food.x, food.y, food.c);
+
+    // snake body
+    for (let i = snake.length - 1; i >= 1; i--) {
+      const s = snake[i];
+      const t = i / snake.length;
+      const g = 150 - t * 40;
+      ctx.fillStyle = `rgb(${40 + t * 20}, ${170 - t * 30}, ${70})`;
+      const pad = Math.max(1, cell * 0.08);
+      rrect(s.x * cell + pad, s.y * cell + pad, cell - pad * 2, cell - pad * 2, cell * 0.3);
+      ctx.fill();
+      // belly dot
+      ctx.fillStyle = 'rgba(255,255,255,.35)';
+      ctx.beginPath();
+      ctx.arc(s.x * cell + cell / 2, s.y * cell + cell / 2, cell * 0.14, 0, 7);
+      ctx.fill();
+    }
+
+    // head with a cute face
+    drawHead();
+  }
+
+  function drawFruit(gx, gy, color) {
+    const cx = gx * cell + cell / 2, cy = gy * cell + cell / 2, r = cell * 0.34;
+    // leaf
+    ctx.fillStyle = '#3fae3f';
+    ctx.beginPath();
+    ctx.ellipse(cx + r * 0.5, cy - r * 0.9, r * 0.4, r * 0.22, -0.7, 0, 7);
+    ctx.fill();
+    // stem
+    ctx.strokeStyle = '#7a4a22'; ctx.lineWidth = Math.max(1.5, cell * 0.06);
+    ctx.beginPath(); ctx.moveTo(cx, cy - r * 0.7); ctx.lineTo(cx, cy - r * 1.05); ctx.stroke();
+    // body
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, 7); ctx.fill();
+    // shine
+    ctx.fillStyle = 'rgba(255,255,255,.5)';
+    ctx.beginPath(); ctx.arc(cx - r * 0.35, cy - r * 0.35, r * 0.22, 0, 7); ctx.fill();
+  }
+
+  function drawHead() {
+    const h = snake[0];
+    const x = h.x * cell, y = h.y * cell;
+    const pad = Math.max(1, cell * 0.05);
+    ctx.fillStyle = '#2fb84e';
+    rrect(x + pad, y + pad, cell - pad * 2, cell - pad * 2, cell * 0.38);
+    ctx.fill();
+
+    // eyes: placed toward the facing direction
+    const cx = x + cell / 2, cy = y + cell / 2;
+    const ex = dir.x * cell * 0.14, ey = dir.y * cell * 0.14;      // shift toward heading
+    const ox = dir.x === 0 ? cell * 0.22 : cell * 0.14;            // eye separation
+    const oy = dir.y === 0 ? cell * 0.22 : cell * 0.14;
+    // perpendicular offsets so the two eyes sit side by side
+    const perpx = dir.x === 0 ? 1 : 0, perpy = dir.x === 0 ? 0 : 1;
+    const eyeR = cell * 0.16, pupR = cell * 0.08;
+    for (const s of [-1, 1]) {
+      const eXe = cx + ex + perpx * ox * s;
+      const eYe = cy + ey + perpy * oy * s;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(eXe, eYe, eyeR, 0, 7); ctx.fill();
+      ctx.fillStyle = '#183a18';
+      ctx.beginPath(); ctx.arc(eXe + dir.x * cell * 0.05, eYe + dir.y * cell * 0.05, pupR, 0, 7); ctx.fill();
+    }
+    // little red tongue poking out in the heading direction
+    ctx.strokeStyle = '#e23b5a';
+    ctx.lineWidth = Math.max(1.5, cell * 0.07);
+    const tx = cx + dir.x * cell * 0.42, ty = cy + dir.y * cell * 0.42;
+    ctx.beginPath();
+    ctx.moveTo(cx + dir.x * cell * 0.3, cy + dir.y * cell * 0.3);
+    ctx.lineTo(tx, ty);
+    ctx.stroke();
+  }
+
+  // ---- state transitions ------------------------------------------
+  function start() {
+    initAudio();
+    reset();
+    state = 'play';
+    document.getElementById('title').classList.add('hidden');
+    document.getElementById('over').classList.add('hidden');
+    last = 0; acc = 0;
+    requestAnimationFrame(frame);
+  }
+
+  function gameOver() {
+    state = 'over';
+    if (score > best) {
+      best = score;
+      localStorage.setItem(BEST_KEY, best);
+      document.getElementById('best').textContent = 'さいこう: ' + best;
+    }
+    document.getElementById('over-msg').textContent = 'たべた フルーツ: ' + score;
+    document.getElementById('over').classList.remove('hidden');
+    sfxOver();
+    draw();
+  }
+
+  document.getElementById('btn-start').addEventListener('click', start);
+  document.getElementById('btn-retry').addEventListener('click', start);
+
+  // read-only hook (handy for automated testing; harmless to players)
+  window.__snake = {
+    get head() { return snake[0]; },
+    get food() { return food; },
+    get score() { return score; },
+    get state() { return state; },
+    get dir() { return dir; },
+    get body() { return snake.map((s) => ({ x: s.x, y: s.y })); },
+    get n() { return N; },
+  };
+
+  // ---- boot --------------------------------------------------------
+  state = 'title';
+  reset();
+  fit();
+  draw();
+})();
+</script>
+</body>
+</html>

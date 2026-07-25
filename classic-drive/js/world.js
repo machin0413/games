@@ -7,9 +7,10 @@
 const World = (() => {
   'use strict';
 
-  const HALF = 100;        // soft park boundary (car is kept inside)
+  const HALF = 190;        // soft park boundary (car is kept inside)
   const TILE = 10;         // ground tile size
   const VIEW = 8;          // how many tiles out to draw around the car
+  const DRAW = 110;        // only draw trees/stars within this range (perf)
 
   const GRASS_A = '#7ec850';
   const GRASS_B = '#74be48';
@@ -38,12 +39,15 @@ const World = (() => {
       { x: 0, z: 40, w: 6, len: 8, h: 2.4, yaw: 0 },
       { x: -30, z: 10, w: 6, len: 8, h: 2.2, yaw: Math.PI / 2 },
       { x: 40, z: 30, w: 6, len: 8, h: 2.6, yaw: 0 },
+      { x: -70, z: -60, w: 6, len: 8, h: 2.8, yaw: 0 },
+      { x: 90, z: -40, w: 6, len: 9, h: 3.0, yaw: Math.PI / 2 },
+      { x: -50, z: 100, w: 6, len: 8, h: 2.6, yaw: 0 },
     ];
 
     const clearOfRamps = (x, z) => ramps.every((r) => Math.hypot(x - r.x, z - r.z) > 12);
 
     trees = [];
-    for (let i = 0; i < 46; i++) {
+    for (let i = 0; i < 150; i++) {
       let x, z, ok = false, tries = 0;
       while (!ok && tries++ < 20) {
         // bias trees toward the edges so the middle stays open to play
@@ -58,12 +62,12 @@ const World = (() => {
     }
 
     clouds = [];
-    for (let i = 0; i < 10; i++) {
-      clouds.push({ x: rnd(-HALF, HALF), y: rnd(24, 34), z: rnd(-HALF, HALF), r: rnd(6, 11) });
+    for (let i = 0; i < 16; i++) {
+      clouds.push({ x: rnd(-HALF, HALF), y: rnd(24, 36), z: rnd(-HALF, HALF), r: rnd(6, 11) });
     }
 
     stars = [];
-    for (let i = 0; i < 42; i++) spawnStar(stars[i] = {});
+    for (let i = 0; i < 150; i++) spawnStar(stars[i] = {});
   }
 
   function spawnStar(st) {
@@ -132,8 +136,9 @@ const World = (() => {
       Engine.add([p(hw, 0, -hl), p(hw, 0, hl), p(hw, r.h, hl)], col);   // side R
     }
 
-    // trees
+    // trees (only nearby ones, keeps the big park cheap to draw)
     for (const tr of trees) {
+      if (Math.abs(tr.x - carX) > DRAW || Math.abs(tr.z - carZ) > DRAW) continue;
       Engine.addModel(Cars.box([-0.18 * tr.s, 0, -0.18 * tr.s],
                               [0.18 * tr.s, 1.1 * tr.s, 0.18 * tr.s], '#7a4a22'),
         tr.x, 0, tr.z, 0);
@@ -155,9 +160,10 @@ const World = (() => {
       }
     }
 
-    // stars (spin + gentle bob), each in its own colour
+    // stars (spin + gentle bob), each in its own colour; cull the far ones
     for (const st of stars) {
       if (st.taken) continue;
+      if (Math.abs(st.x - carX) > DRAW || Math.abs(st.z - carZ) > DRAW) continue;
       const bob = Math.sin(t * 2.5 + st.phase) * 0.25;
       Engine.addModel(STAR_MODELS[st.color] || STAR_MODELS[STAR_COLORS[0]],
         st.x, bob, st.z, t * 2 + st.phase);

@@ -18,6 +18,31 @@ const World = (() => {
   let trees = [], clouds = [], ramps = [], stars = [];
   const pond = { x: 34, z: -28, r: 15 };
 
+  // Road network: an outer loop plus a central cross. Segments are straight
+  // centre-lines; they get widened and tiled at draw time. The car starts on
+  // the middle intersection.
+  const ROAD_W = 9, ROAD_COL = '#7a7f88';
+  const RR = 140;
+  const roads = [
+    { ax: -RR, az: RR, bx: RR, bz: RR },   // north
+    { ax: -RR, az: -RR, bx: RR, bz: -RR }, // south
+    { ax: -RR, az: -RR, bx: -RR, bz: RR }, // west
+    { ax: RR, az: -RR, bx: RR, bz: RR },   // east
+    { ax: 0, az: -RR, bx: 0, bz: RR },     // cross (vertical)
+    { ax: -RR, az: 0, bx: RR, bz: 0 },     // cross (horizontal)
+  ];
+
+  // Is (x,z) on (or near) any road? Used to keep trees off the tarmac.
+  function onRoad(x, z, margin = 0) {
+    return roads.some((s) => {
+      const dx = s.bx - s.ax, dz = s.bz - s.az, len2 = dx * dx + dz * dz;
+      let t = ((x - s.ax) * dx + (z - s.az) * dz) / len2;
+      t = Math.max(0, Math.min(1, t));
+      const cx = s.ax + dx * t, cz = s.az + dz * t;
+      return Math.hypot(x - cx, z - cz) < ROAD_W / 2 + margin;
+    });
+  }
+
   function rnd(a, b) { return a + Math.random() * (b - a); }
 
   // n-sided pyramid (used for tree tops).
@@ -56,7 +81,7 @@ const World = (() => {
         z = edge ? rnd(-HALF, HALF) : rnd(-HALF * 0.7, HALF * 0.7);
         const dCenter = Math.hypot(x, z);
         const dPond = Math.hypot(x - pond.x, z - pond.z);
-        ok = dCenter > 14 && dPond > pond.r + 3 && clearOfRamps(x, z);
+        ok = dCenter > 14 && dPond > pond.r + 3 && clearOfRamps(x, z) && !onRoad(x, z, 2.5);
       }
       trees.push({ x, z, s: rnd(0.8, 1.5), c: Math.random() < 0.5 ? '#3f9d3a' : '#358a34' });
     }
@@ -109,6 +134,32 @@ const World = (() => {
         const h = TILE / 2;
         Engine.add([[cx - h, 0, cz - h], [cx + h, 0, cz - h],
                     [cx + h, 0, cz + h], [cx - h, 0, cz + h]], col, false, 0);
+      }
+    }
+
+    // roads: widen each centre-line and tile it into short pieces so the
+    // near-plane cull works and long roads don't pop. White dashes down the
+    // middle. Drawn on a sub-layer above the grass, below the car.
+    const hw = ROAD_W / 2;
+    for (const s of roads) {
+      const dx = s.bx - s.ax, dz = s.bz - s.az, len = Math.hypot(dx, dz);
+      const ux = dx / len, uz = dz / len, px = -uz, pz = ux;
+      for (let d = 0; d < len; d += TILE) {
+        const d2 = Math.min(len, d + TILE);
+        const mx = s.ax + ux * (d + d2) / 2, mz = s.az + uz * (d + d2) / 2;
+        if (Math.abs(mx - carX) > DRAW || Math.abs(mz - carZ) > DRAW) continue;
+        const a0x = s.ax + ux * d, a0z = s.az + uz * d;
+        const a1x = s.ax + ux * d2, a1z = s.az + uz * d2;
+        Engine.add([[a0x + px * hw, 0.02, a0z + pz * hw], [a1x + px * hw, 0.02, a1z + pz * hw],
+                    [a1x - px * hw, 0.02, a1z - pz * hw], [a0x - px * hw, 0.02, a0z - pz * hw]],
+          ROAD_COL, false, 0.3);
+        // centre dash (short, with a gap before the next piece)
+        const dl = 2.2, dw = 0.32;
+        Engine.add([[mx - ux * dl + px * dw, 0.03, mz - uz * dl + pz * dw],
+                    [mx + ux * dl + px * dw, 0.03, mz + uz * dl + pz * dw],
+                    [mx + ux * dl - px * dw, 0.03, mz + uz * dl - pz * dw],
+                    [mx - ux * dl - px * dw, 0.03, mz - uz * dl - pz * dw]],
+          '#f4f4f4', false, 0.36);
       }
     }
 

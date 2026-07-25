@@ -190,12 +190,22 @@
     }
     car._pg = ground;
 
-    // soft park boundary: steer/nudge back inside
-    const B = World.HALF - 3;
-    if (car.x > B) { car.x = B; car.yaw += 0.03; }
-    else if (car.x < -B) { car.x = -B; car.yaw += 0.03; }
-    if (car.z > B) { car.z = B; car.yaw += 0.03; }
-    else if (car.z < -B) { car.z = -B; car.yaw += 0.03; }
+    // soft park boundary: near the edge, gently curve the heading back
+    // toward the middle (whichever way is shortest) instead of forcing a
+    // fixed spin. The child can still steer; the pull just grows near the rim.
+    const edge = World.HALF - 10;
+    const dist = Math.hypot(car.x, car.z);
+    if (dist > edge) {
+      const want = Math.atan2(-car.x, -car.z); // heading that points inward
+      let d = want - car.yaw;
+      while (d > Math.PI) d -= 2 * Math.PI;
+      while (d < -Math.PI) d += 2 * Math.PI;
+      const k = Math.min(1, (dist - edge) / 12);
+      car.yaw += d * k * Math.min(1, dt * 2.5);
+    }
+    // hard limit so the car can never actually leave the park (no spin)
+    const hard = World.HALF - 2;
+    if (dist > hard) { car.x *= hard / dist; car.z *= hard / dist; }
 
     // engine sound tracks speed
     if (engineOsc) {

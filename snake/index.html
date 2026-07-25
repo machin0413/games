@@ -136,11 +136,16 @@
   let best = +(localStorage.getItem(BEST_KEY) || 0);
   document.getElementById('best').textContent = 'さいこう: ' + best;
 
+  // thickness grows with length but on a gentle, saturating curve, so it
+  // fattens much more slowly than the snake lengthens.
+  function widthFor(n) { return 12 + 10 * (1 - 1 / (1 + n / 45)); }
+
   function makeSnake(x, y, segs, color, isPlayer) {
     const angle = rnd(0, Math.PI * 2);
+    const hr = widthFor(segs);
     const s = {
       x, y, angle, targetAngle: angle, color, isPlayer,
-      headR: isPlayer ? 15 : 13, bodyR: isPlayer ? 13 : 11,
+      headR: hr, bodyR: hr - 2,
       segCount: segs, alive: true, boosting: false, boostDrain: 0,
       path: [], pathAcc: 0, aiTimer: rnd(0.5, 2), respawn: 0,
     };
@@ -294,6 +299,8 @@
   }
 
   function advance(s, dt) {
+    // thickness tracks length on the gentle curve
+    s.headR = widthFor(s.segCount); s.bodyR = s.headR - 2;
     turnToward(s, s.targetAngle, dt);
     let sp = BASE_SPEED;
     if (s.boosting && s.segCount > 6) {
@@ -352,7 +359,11 @@
         const kr = s.headR + o.bodyR, kill = kr * kr;
         for (let i = 1; i < segs.length; i++) {
           const dx = wd(segs[i].x, s.x), dy = wd(segs[i].y, s.y);
-          if (dx * dx + dy * dy < kill) { killSnake(s); break; }
+          if (dx * dx + dy * dy < kill) {
+            // the SMALLER snake loses; a tie goes against the one that rammed
+            killSnake(s.segCount > o.segCount ? o : s);
+            break;
+          }
         }
         if (!s.alive) break;
       }
@@ -451,6 +462,16 @@
     ctx.moveTo(hx + px * hr * 0.7, hy + py * hr * 0.7);
     ctx.lineTo(hx + px * hr * 1.4, hy + py * hr * 1.4);
     ctx.stroke();
+    // length number floating above the head, so you can size up rivals
+    const fs = Math.max(12, hr * 1.05);
+    ctx.font = '900 ' + fs.toFixed(0) + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = Math.max(2, fs * 0.16); ctx.strokeStyle = 'rgba(20,45,20,.9)';
+    ctx.lineJoin = 'round';
+    const ny = hy - hr - fs * 0.7;
+    ctx.strokeText(s.segCount, hx, ny);
+    ctx.fillStyle = s.isPlayer ? '#fff' : '#fdfdfd';
+    ctx.fillText(s.segCount, hx, ny);
   }
 
   // ---- loop --------------------------------------------------------
@@ -495,21 +516,26 @@
     get enemies() { return snakes.filter((s) => !s.isPlayer && s.alive).length; },
     get head() { return player ? { x: player.x, y: player.y } : null; },
     get angle() { return player ? player.angle : 0; },
+    get headR() { return player ? player.headR : 0; },
+    setLen(n) { if (player) { player.segCount = n; updateScore(); } },
     steer(a) { if (player) { player.targetAngle = a; } },
     setBoost(b) { if (player) player.boosting = b; },
-    // test helper: angle from the player toward the nearest enemy body point
-    aimNearestBody() {
+    // test helper: aim at the nearest enemy that is SMALLER (prey) or, if
+    // prey=false, the nearest of any size. Returns {angle,len} or null.
+    aimNearest(preyOnly) {
       if (!player) return null;
-      let bx = null, by = null, bd = Infinity;
+      let ba = null, blen = 0, bd = Infinity;
       for (const o of snakes) {
         if (o === player || !o.alive) continue;
+        if (preyOnly && o.segCount >= player.segCount) continue;
         for (const p of (o._segs || [])) {
           const dx = wd(p.x, player.x), dy = wd(p.y, player.y), d = dx * dx + dy * dy;
-          if (d < bd) { bd = d; bx = dx; by = dy; }
+          if (d < bd) { bd = d; ba = Math.atan2(dy, dx); blen = o.segCount; }
         }
       }
-      return bx === null ? null : Math.atan2(by, bx);
+      return ba === null ? null : { angle: ba, len: blen };
     },
+    aimNearestBody() { const r = this.aimNearest(false); return r ? r.angle : null; },
   };
 
   // ---- boot --------------------------------------------------------

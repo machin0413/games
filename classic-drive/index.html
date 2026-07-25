@@ -22,13 +22,15 @@
   /* ---- bottom controls ---- */
   #controls { position: fixed; bottom: 0; left: 0; right: 0; padding: 22px 20px calc(22px + env(safe-area-inset-bottom));
     display: flex; justify-content: space-between; align-items: flex-end; pointer-events: none; }
-  .pad { pointer-events: auto; display: flex; gap: 16px; }
+  .pad { pointer-events: auto; display: flex; gap: 14px; align-items: flex-end; }
   .bigbtn { width: 96px; height: 96px; border: none; border-radius: 50%; font-size: 46px;
     color: #fff; box-shadow: 0 6px 0 rgba(0,0,0,.22); display: flex; align-items: center;
     justify-content: center; touch-action: none; }
   .bigbtn:active { transform: translateY(4px); box-shadow: 0 2px 0 rgba(0,0,0,.22); }
   #btn-left, #btn-right { background: #ff5d73; }
-  #btn-horn { background: #ffb400; width: 84px; height: 84px; font-size: 40px; }
+  #btn-turbo { background: #ff8a00; width: 104px; height: 104px; font-size: 50px; }
+  #btn-turbo:active { background: #ff6a00; }
+  #btn-horn { background: #ffc233; width: 66px; height: 66px; font-size: 30px; }
 
   .hidden { display: none !important; }
 
@@ -61,7 +63,10 @@
 
   <div id="controls" class="hidden">
     <div class="pad"><button id="btn-left" class="bigbtn">◀</button></div>
-    <div class="pad"><button id="btn-horn" class="bigbtn">🎺</button></div>
+    <div class="pad">
+      <button id="btn-horn" class="bigbtn">🎺</button>
+      <button id="btn-turbo" class="bigbtn">🚀</button>
+    </div>
     <div class="pad"><button id="btn-right" class="bigbtn">▶</button></div>
   </div>
 

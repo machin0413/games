@@ -26,9 +26,9 @@
   let carModel = Cars.build(carId);
   let score = 0;
 
-  const car = { x: 0, z: 0, y: 0, vy: 0, yaw: 0, speed: 0 };
-  const CRUISE = 15, TURN = 1.9, GRAV = 24;
-  const input = { left: false, right: false };
+  const car = { x: 0, z: 0, y: 0, vy: 0, yaw: 0, speed: 0, air: false };
+  const CRUISE = 15, TURBO = 28, TURN = 1.9, GRAV = 24;
+  const input = { left: false, right: false, turbo: false };
 
   // ---- audio -------------------------------------------------------
   let actx = null, master = null, engineOsc = null, engineGain = null, muted = false;
@@ -54,6 +54,20 @@
   }
   function chime() { beep(880, 0.12, 'sine', 0.5); beep(1320, 0.16, 'sine', 0.5, 0.08); }
   function honk() { beep(180, 0.18, 'square', 0.5); beep(150, 0.22, 'square', 0.5, 0.16); }
+  // rising "whee" when launching off a ramp
+  function jumpSfx() {
+    if (!actx) return;
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = 'sine'; o.connect(g); g.connect(master);
+    const t0 = actx.currentTime;
+    o.frequency.setValueAtTime(440, t0);
+    o.frequency.exponentialRampToValueAtTime(1100, t0 + 0.28);
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.4, t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.32);
+    o.start(t0); o.stop(t0 + 0.34);
+  }
+  function landSfx() { beep(120, 0.12, 'triangle', 0.4); }
 
   // ---- input -------------------------------------------------------
   function bindHold(id, on, off) {
@@ -67,16 +81,19 @@
   }
   bindHold('btn-left', () => input.left = true, () => input.left = false);
   bindHold('btn-right', () => input.right = true, () => input.right = false);
+  bindHold('btn-turbo', () => input.turbo = true, () => input.turbo = false);
   document.getElementById('btn-horn').addEventListener('pointerdown', (e) => { e.preventDefault(); initAudio(); honk(); });
 
   window.addEventListener('keydown', (e) => {
     if (e.key === 'ArrowLeft' || e.key === 'a') input.left = true;
     else if (e.key === 'ArrowRight' || e.key === 'd') input.right = true;
+    else if (e.key === 'ArrowUp' || e.key === 'Shift' || e.key === 'w') { initAudio(); input.turbo = true; }
     else if (e.key === ' ') { initAudio(); honk(); }
   });
   window.addEventListener('keyup', (e) => {
     if (e.key === 'ArrowLeft' || e.key === 'a') input.left = false;
     else if (e.key === 'ArrowRight' || e.key === 'd') input.right = false;
+    else if (e.key === 'ArrowUp' || e.key === 'Shift' || e.key === 'w') input.turbo = false;
   });
 
   document.getElementById('btn-mute').addEventListener('click', () => {
@@ -109,7 +126,8 @@
     initAudio();
     mode = 'play';
     score = 0;
-    car.x = 0; car.z = 0; car.y = 0; car.vy = 0; car.yaw = 0; car.speed = 0;
+    car.x = 0; car.z = 0; car.y = 0; car.vy = 0; car.yaw = 0; car.speed = 0; car.air = false;
+    input.left = input.right = input.turbo = false;
     document.getElementById('title').classList.add('hidden');
     document.getElementById('hud').classList.remove('hidden');
     document.getElementById('controls').classList.remove('hidden');
@@ -141,26 +159,34 @@
     const steer = (input.right ? 1 : 0) - (input.left ? 1 : 0);
     car.yaw += steer * TURN * dt * Math.min(1, car.speed / 6 + 0.2);
 
-    // auto-forward, gently easing to cruise; slower in the pond
+    // auto-forward, easing to cruise (or TURBO while boosting); slow in pond.
+    // Steering in the air keeps some control but can't change ground speed.
     const inPond = Math.hypot(car.x - World.pond.x, car.z - World.pond.z) < World.pond.r;
-    const target = inPond ? CRUISE * 0.4 : CRUISE;
-    car.speed += (target - car.speed) * Math.min(1, dt * 2);
+    const boosting = input.turbo && !inPond && !car.air;
+    const target = inPond ? CRUISE * 0.4 : (input.turbo ? TURBO : CRUISE);
+    car.speed += (target - car.speed) * Math.min(1, dt * (boosting ? 3 : 2));
 
     const fx = Math.sin(car.yaw), fz = Math.cos(car.yaw);
     car.x += fx * car.speed * dt;
     car.z += fz * car.speed * dt;
 
-    // vertical: ride ramps and hop off the top
+    // vertical: ride up ramps and leap off the top. Faster = bigger jump,
+    // so charging a ramp with turbo sends the car flying.
     const ground = rampHeightAt(car.x, car.z);
     const prevGround = car._pg || 0;
-    if (car.y <= ground + 0.02 && car.vy <= 0) {
-      car.y = ground; car.vy = 0;
-      // launch when the ground drops away off a ramp top
-      if (prevGround > 0.6 && ground < prevGround - 0.05) car.vy = car.speed * 0.55;
-    } else {
+    if (car.air) {
+      // in flight: simple projectile motion until we touch down
       car.vy -= GRAV * dt;
       car.y += car.vy * dt;
-      if (car.y < ground) { car.y = ground; car.vy = 0; }
+      if (car.y <= ground) { car.y = ground; car.vy = 0; car.air = false; landSfx(); }
+    } else if (prevGround > 0.5 && ground < prevGround - 0.05) {
+      // just ran off the top of a ramp -> launch upward from the peak
+      car.y = prevGround;
+      car.vy = Math.max(9, car.speed * 0.72);
+      car.air = true; jumpSfx();
+    } else {
+      // glued to the ground / ramp surface
+      car.y = ground; car.vy = 0;
     }
     car._pg = ground;
 
@@ -192,7 +218,9 @@
     // chase camera (smoothed)
     const cam = Engine.cam;
     const camDist = 9, camHt = 4.6;
-    const tx = car.x - fx * camDist, tz = car.z - fz * camDist, ty = car.y + camHt;
+    // follow the car's height only partly, so leaping off a ramp reads as a
+    // big, satisfying jump instead of the camera rising with the car.
+    const tx = car.x - fx * camDist, tz = car.z - fz * camDist, ty = car.y * 0.4 + camHt;
     cam.x += (tx - cam.x) * Math.min(1, dt * 6);
     cam.z += (tz - cam.z) * Math.min(1, dt * 6);
     cam.y += (ty - cam.y) * Math.min(1, dt * 6);
@@ -202,6 +230,9 @@
     while (dy < -Math.PI) dy += 2 * Math.PI;
     cam.yaw += dy * Math.min(1, dt * 5);
     cam.pitch = 0.30;
+    // widen the view a touch while boosting for a rush-of-speed feel
+    const targetFov = input.turbo ? 1.2 : 1.05;
+    cam.fov += (targetFov - cam.fov) * Math.min(1, dt * 4);
   }
 
   // ---- render ------------------------------------------------------

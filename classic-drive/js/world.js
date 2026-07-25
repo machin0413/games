@@ -34,6 +34,14 @@ const World = (() => {
   }
 
   function init() {
+    ramps = [
+      { x: 0, z: 40, w: 6, len: 8, h: 2.4, yaw: 0 },
+      { x: -30, z: 10, w: 6, len: 8, h: 2.2, yaw: Math.PI / 2 },
+      { x: 40, z: 30, w: 6, len: 8, h: 2.6, yaw: 0 },
+    ];
+
+    const clearOfRamps = (x, z) => ramps.every((r) => Math.hypot(x - r.x, z - r.z) > 12);
+
     trees = [];
     for (let i = 0; i < 46; i++) {
       let x, z, ok = false, tries = 0;
@@ -44,7 +52,7 @@ const World = (() => {
         z = edge ? rnd(-HALF, HALF) : rnd(-HALF * 0.7, HALF * 0.7);
         const dCenter = Math.hypot(x, z);
         const dPond = Math.hypot(x - pond.x, z - pond.z);
-        ok = dCenter > 14 && dPond > pond.r + 3;
+        ok = dCenter > 14 && dPond > pond.r + 3 && clearOfRamps(x, z);
       }
       trees.push({ x, z, s: rnd(0.8, 1.5), c: Math.random() < 0.5 ? '#3f9d3a' : '#358a34' });
     }
@@ -53,12 +61,6 @@ const World = (() => {
     for (let i = 0; i < 10; i++) {
       clouds.push({ x: rnd(-HALF, HALF), y: rnd(24, 34), z: rnd(-HALF, HALF), r: rnd(6, 11) });
     }
-
-    ramps = [
-      { x: 0, z: 40, w: 6, len: 8, h: 2.4, yaw: 0 },
-      { x: -30, z: 10, w: 6, len: 8, h: 2.2, yaw: Math.PI / 2 },
-      { x: 40, z: 30, w: 6, len: 8, h: 2.6, yaw: 0 },
-    ];
 
     stars = [];
     for (let i = 0; i < 16; i++) spawnStar(stars[i] = {});

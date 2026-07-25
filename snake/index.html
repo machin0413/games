@@ -91,7 +91,7 @@
   'use strict';
 
   // ---- config ------------------------------------------------------
-  const N = 17;                 // grid is N x N cells
+  const N = 25;                 // grid is N x N cells
   const START_MS = 200;         // tick interval at the start
   const MIN_MS = 90;            // fastest tick
   const SPEEDUP_EVERY = 3;      // eat this many fruits to speed up a notch
@@ -106,7 +106,7 @@
     const pad = 24;
     const avail = Math.min(window.innerWidth - pad,
                            window.innerHeight - 260); // leave room for HUD + pad
-    const size = Math.max(210, Math.min(460, avail));
+    const size = Math.max(240, Math.min(520, avail));
     cell = Math.floor(size / N);
     const px = cell * N;
     canvas.style.width = px + 'px';
@@ -150,7 +150,7 @@
   });
 
   // ---- game state --------------------------------------------------
-  let snake, dir, nextDir, food, score, tickMs, state, acc, last;
+  let snake, prevCells, dir, nextDir, food, score, tickMs, state, acc, last;
   const BEST_KEY = 'hebisan-best';
   let best = +(localStorage.getItem(BEST_KEY) || 0);
   document.getElementById('best').textContent = 'さいこう: ' + best;
@@ -160,6 +160,7 @@
   function reset() {
     const mid = (N / 2) | 0;
     snake = [{ x: mid - 1, y: mid }, { x: mid - 2, y: mid }, { x: mid - 3, y: mid }];
+    prevCells = snake.map((s) => ({ x: s.x, y: s.y }));
     dir = { x: 1, y: 0 };
     nextDir = { x: 1, y: 0 };
     score = 0; tickMs = START_MS; acc = 0;
@@ -217,6 +218,8 @@
 
   // ---- loop --------------------------------------------------------
   function step() {
+    // remember where every segment was, so rendering can slide between cells
+    prevCells = snake.map((s) => ({ x: s.x, y: s.y }));
     dir = nextDir;
     const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
 
@@ -240,9 +243,15 @@
     if (state !== 'play') return;
     if (!last) last = ts;
     acc += ts - last; last = ts;
-    let moved = false;
-    while (acc >= tickMs) { acc -= tickMs; step(); moved = true; if (state !== 'play') break; }
-    if (state === 'play') { draw(); requestAnimationFrame(frame); }
+    while (acc >= tickMs) { acc -= tickMs; step(); if (state !== 'play') break; }
+    if (state === 'play') { draw(Math.min(acc / tickMs, 1)); requestAnimationFrame(frame); }
+  }
+
+  // interpolated cell position of segment i, t in 0..1 through the current tick
+  function segPos(i, t) {
+    const cur = snake[i];
+    const prev = prevCells[i] || prevCells[prevCells.length - 1] || cur;
+    return { x: prev.x + (cur.x - prev.x) * t, y: prev.y + (cur.y - prev.y) * t };
   }
 
   // ---- drawing -----------------------------------------------------
@@ -256,7 +265,9 @@
     ctx.closePath();
   }
 
-  function draw() {
+  let lastT = 1;
+  function draw(t = 1) {
+    lastT = t;
     const px = cell * N;
     // board background with subtle checker
     ctx.clearRect(0, 0, px, px);
@@ -267,27 +278,26 @@
       }
     }
 
-    // food (a round fruit with a little leaf)
+    // food (a round fruit with a little leaf) — fixed on its cell
     drawFruit(food.x, food.y, food.c);
 
-    // snake body
+    // snake body, drawn at smoothly interpolated positions
     for (let i = snake.length - 1; i >= 1; i--) {
-      const s = snake[i];
-      const t = i / snake.length;
-      const g = 150 - t * 40;
-      ctx.fillStyle = `rgb(${40 + t * 20}, ${170 - t * 30}, ${70})`;
+      const p = segPos(i, t);
+      const f = i / snake.length;
+      ctx.fillStyle = `rgb(${40 + f * 20}, ${170 - f * 30}, 70)`;
       const pad = Math.max(1, cell * 0.08);
-      rrect(s.x * cell + pad, s.y * cell + pad, cell - pad * 2, cell - pad * 2, cell * 0.3);
+      rrect(p.x * cell + pad, p.y * cell + pad, cell - pad * 2, cell - pad * 2, cell * 0.3);
       ctx.fill();
       // belly dot
       ctx.fillStyle = 'rgba(255,255,255,.35)';
       ctx.beginPath();
-      ctx.arc(s.x * cell + cell / 2, s.y * cell + cell / 2, cell * 0.14, 0, 7);
+      ctx.arc(p.x * cell + cell / 2, p.y * cell + cell / 2, cell * 0.14, 0, 7);
       ctx.fill();
     }
 
     // head with a cute face
-    drawHead();
+    drawHead(segPos(0, t));
   }
 
   function drawFruit(gx, gy, color) {
@@ -308,9 +318,8 @@
     ctx.beginPath(); ctx.arc(cx - r * 0.35, cy - r * 0.35, r * 0.22, 0, 7); ctx.fill();
   }
 
-  function drawHead() {
-    const h = snake[0];
-    const x = h.x * cell, y = h.y * cell;
+  function drawHead(pos) {
+    const x = pos.x * cell, y = pos.y * cell;
     const pad = Math.max(1, cell * 0.05);
     ctx.fillStyle = '#2fb84e';
     rrect(x + pad, y + pad, cell - pad * 2, cell - pad * 2, cell * 0.38);
@@ -378,6 +387,7 @@
     get dir() { return dir; },
     get body() { return snake.map((s) => ({ x: s.x, y: s.y })); },
     get n() { return N; },
+    get headRender() { return segPos(0, lastT); }, // interpolated head cell-pos
   };
 
   // ---- boot --------------------------------------------------------

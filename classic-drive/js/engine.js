@@ -56,16 +56,19 @@ const Engine = (() => {
 
   // Add a polygon. pts are WORLD-space [x,y,z]. color is base hex.
   // If shade is true the face is lit by the sun for a low-poly look.
-  function add(pts, color, shade = true) {
-    polys.push({ pts, color, shade });
+  // layer forces a coarse draw order (lower = further back). The flat
+  // ground uses layer 0 so it can never paint over things standing on
+  // it (which otherwise makes the car flicker / look half-buried).
+  function add(pts, color, shade = true, layer = 1) {
+    polys.push({ pts, color, shade, layer });
   }
 
   // Convenience: add a model (array of {v:[[x,y,z]...], color, shade?})
   // placed at (ox,oy,oz) rotated by yaw.
-  function addModel(model, ox, oy, oz, yaw) {
+  function addModel(model, ox, oy, oz, yaw, layer = 1) {
     for (const f of model) {
       const w = f.v.map((p) => place(p, ox, oy, oz, yaw));
-      add(w, f.color, f.shade !== false);
+      add(w, f.color, f.shade !== false, layer);
     }
   }
 
@@ -111,11 +114,11 @@ const Engine = (() => {
         b = 0.55 + 0.45 * Math.abs(b); // soft, never fully dark
         col = shadeHex(poly.color, b);
       }
-      draw.push({ sp, col, z: avgZ });
+      draw.push({ sp, col, z: avgZ, layer: poly.layer });
     }
 
-    // far -> near
-    draw.sort((a, b) => b.z - a.z);
+    // draw lower layers first (ground), then by depth far -> near
+    draw.sort((a, b) => (a.layer - b.layer) || (b.z - a.z));
 
     for (const d of draw) {
       ctx.beginPath();

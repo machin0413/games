@@ -98,17 +98,17 @@ const World = (() => {
         const col = (((bi + di) + (bj + dj)) & 1) ? GRASS_A : GRASS_B;
         const h = TILE / 2;
         Engine.add([[cx - h, 0, cz - h], [cx + h, 0, cz - h],
-                    [cx + h, 0, cz + h], [cx - h, 0, cz + h]], col, false);
+                    [cx + h, 0, cz + h], [cx - h, 0, cz + h]], col, false, 0);
       }
     }
 
-    // pond (flat blue disc)
+    // pond (flat blue disc) sits just above the grass, still ground layer
     const pn = 14, pv = [];
     for (let i = 0; i < pn; i++) {
       const a = (i / pn) * Math.PI * 2;
       pv.push([pond.x + Math.cos(a) * pond.r, 0.02, pond.z + Math.sin(a) * pond.r]);
     }
-    Engine.add(pv, '#49b6e8', false);
+    Engine.add(pv, '#49b6e8', false, 0.5);
 
     // ramps
     for (const r of ramps) {

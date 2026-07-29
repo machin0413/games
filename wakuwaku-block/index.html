@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#F0EAFF">
+<title>ワクワクブロック</title>
+<style>
+  :root{
+    --bg1:#FFF8F0; --bg2:#F0EAFF;
+    --panel:#ffffff; --panel-a:0.92;
+    --empty:#EEF0F4; --empty-edge:#E2E6EE;
+    --text:#2D3142; --muted:#8A90A0;
+    --cta:#4D96FF; --cta-press:#3a82e6;
+    --gap:3px;
+    --block-colors:#FF6B6B,#FFD93D,#6BCB77,#4D96FF,#9B72CB,#FF9F45,#FF8FAB;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Hiragino Sans","Noto Sans JP",sans-serif;
+    color:var(--text);
+    background:linear-gradient(160deg,var(--bg1),var(--bg2));
+    background-attachment:fixed;
+    overscroll-behavior:none;
+    user-select:none; -webkit-user-select:none;
+    display:flex; flex-direction:column; align-items:center;
+    min-height:100dvh;
+    padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  }
+  .wrap{width:100%; max-width:480px; padding:10px 14px 14px; display:flex; flex-direction:column; gap:10px; flex:1;}
+
+  /* top bar */
+  .topbar{display:flex; align-items:center; justify-content:space-between; min-height:44px;}
+  .iconbtn{
+    width:44px; height:44px; border:none; border-radius:12px; cursor:pointer;
+    background:rgba(255,255,255,0.6); color:var(--text); font-size:20px;
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 2px 6px rgba(80,90,120,.12); transition:transform .08s, background .15s;
+  }
+  .iconbtn:active{transform:scale(.94); background:#fff;}
+  .bestbox{font-size:14px; color:var(--muted); letter-spacing:.5px; text-align:right;}
+  .bestbox b{color:var(--text); font-size:18px; font-weight:800;}
+
+  /* score */
+  .scorewrap{display:flex; align-items:baseline; justify-content:center; gap:8px;}
+  #score{font-size:30px; font-weight:800; letter-spacing:1px; line-height:1;}
+  .score-label{font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:2px;}
+  .combo{font-size:13px; font-weight:700; color:var(--cta); opacity:0; transition:opacity .2s;}
+
+  /* grid */
+  .grid-panel{
+    background:var(--panel); opacity:1;
+    border-radius:16px; padding:10px;
+    box-shadow:0 8px 24px rgba(120,110,170,.18), 0 1px 0 rgba(255,255,255,.6) inset;
+    position:relative;
+  }
+  .grid{
+    display:grid; grid-template-columns:repeat(8,1fr); grid-template-rows:repeat(8,1fr);
+    gap:var(--gap); aspect-ratio:1/1; width:100%;
+    touch-action:none;
+  }
+  .cell{
+    background:var(--empty); border-radius:25%;
+    box-shadow:0 1px 2px rgba(160,170,200,.35) inset, 0 -1px 0 rgba(255,255,255,.5) inset;
+    position:relative; transition:background .25s ease;
+  }
+  .cell.filled{
+    box-shadow:0 2px 4px rgba(80,90,130,.28), 0 1px 0 rgba(255,255,255,.45) inset;
+    animation:pop .12s ease;
+  }
+  .cell.filled::after{
+    content:""; position:absolute; inset:14%; border-radius:22%;
+    background:linear-gradient(160deg, rgba(255,255,255,.42), rgba(255,255,255,0) 55%);
+    pointer-events:none;
+  }
+  /* P1 danger tints on EMPTY cells only (Designer v2 spec). Grid-level class. Exclude ghost (drag preview). */
+  .grid.d-low .cell:not(.filled):not(.ghost){background:#FFF4D6;}
+  .grid.d-mid .cell:not(.filled):not(.ghost){background:#FFE8D1;}
+  .grid.d-hi  .cell:not(.filled):not(.ghost){background:#FFDCDC; animation:emptyPulse 1s ease-in-out infinite;}
+  @keyframes emptyPulse{0%,100%{opacity:1;}50%{opacity:.55;}}
+  @media (prefers-reduced-motion: reduce){
+    .grid.d-hi .cell:not(.filled):not(.ghost){animation:none;}
+  }
+  .cell.ghost{background:transparent; box-shadow:none;}
+  .cell.ghost-ok{background:color-mix(in srgb, var(--g) 45%, transparent); box-shadow:0 0 0 2px color-mix(in srgb,var(--g) 70%,transparent) inset;}
+  .cell.ghost-bad{
+    background:repeating-linear-gradient(45deg, rgba(255,80,80,.28) 0 4px, rgba(255,80,80,.10) 4px 8px);
+    box-shadow:0 0 0 2px rgba(255,80,80,.5) inset;
+  }
+  .cell.clearing{animation:clearFlash .18s ease forwards;}
+  .dim .cell.filled{filter:grayscale(.85) brightness(.92);}
+  .dim{filter:brightness(.82);}
+  @keyframes pop{0%{transform:scale(1.08);}100%{transform:scale(1);}}
+  @keyframes clearFlash{0%{filter:brightness(2.2);}40%{transform:scale(1.05);}100%{transform:scale(0); opacity:0;}}
+
+  /* tray */
+  .tray{
+    display:grid; grid-template-columns:repeat(3,1fr); gap:8px;
+    background:var(--panel); border-radius:14px; padding:10px 8px;
+    box-shadow:0 6px 18px rgba(120,110,170,.14); min-height:96px;
+  }
+  .slot{
+    display:flex; align-items:center; justify-content:center; min-height:80px;
+    border-radius:10px; touch-action:none; position:relative;
+  }
+  .slot.empty{opacity:.35; background:rgba(0,0,0,.02);}
+  .piece{display:grid; gap:var(--gap); pointer-events:none;}
+  .pcell{border-radius:25%; position:relative;
+    box-shadow:0 2px 4px rgba(80,90,130,.28), 0 1px 0 rgba(255,255,255,.45) inset;}
+  .pcell::after{content:""; position:absolute; inset:14%; border-radius:22%;
+    background:linear-gradient(160deg, rgba(255,255,255,.5), rgba(255,255,255,0) 55%);}
+
+  /* floating drag */
+  #floater{position:fixed; z-index:50; display:grid; gap:var(--gap); pointer-events:none;
+    transform:scale(1.1); filter:drop-shadow(0 10px 14px rgba(80,90,130,.35));}
+  .shaking{animation:shake .26s ease;}
+  @keyframes shake{0%,100%{transform:translateX(0);}20%{transform:translateX(-7px);}40%{transform:translateX(6px);}60%{transform:translateX(-5px);}80%{transform:translateX(4px);}}
+
+  /* floating score popup */
+  .floatscore{position:fixed; z-index:40; font-weight:800; font-size:22px; color:var(--cta);
+    pointer-events:none; text-shadow:0 2px 6px rgba(77,150,255,.35); animation:floatUp .9s ease forwards;}
+  @keyframes floatUp{0%{transform:translate(-50%,0) scale(.7); opacity:0;}20%{opacity:1; transform:translate(-50%,-6px) scale(1.1);}100%{transform:translate(-50%,-58px) scale(1); opacity:0;}}
+
+  /* overlay */
+  .overlay{position:absolute; inset:0; z-index:30; display:flex; align-items:center; justify-content:center;
+    background:rgba(45,49,66,.0); border-radius:16px; pointer-events:none; transition:background .3s;}
+  .overlay.show{background:rgba(45,49,66,.45); pointer-events:auto;}
+  .ocard{background:#fff; border-radius:18px; padding:24px 26px; text-align:center; min-width:220px;
+    box-shadow:0 16px 40px rgba(45,49,66,.3); transform:translateY(24px) scale(.96); opacity:0; transition:transform .28s ease, opacity .28s ease;}
+  .overlay.show .ocard{transform:translateY(0) scale(1); opacity:1;}
+  .ocard h2{margin:0 0 6px; font-size:24px; letter-spacing:1px;}
+  .ocard .lbl{font-size:12px; color:var(--muted); letter-spacing:2px; text-transform:uppercase;}
+  .ocard .v{font-size:34px; font-weight:800; margin:2px 0 14px;}
+  .retry{background:var(--cta); color:#fff; border:none; border-radius:12px; padding:13px 22px; font-size:16px; font-weight:700; width:100%; cursor:pointer; box-shadow:0 6px 14px rgba(77,150,255,.4);}
+  .retry:active{background:var(--cta-press); transform:translateY(1px);}
+
+  .hint{text-align:center; font-size:12px; color:var(--muted); padding-top:2px;}
+
+  /* P1: board danger glow on grid-panel edge */
+  .grid-panel{transition:box-shadow .35s ease, background .35s ease;}
+  .grid-panel.danger-low{box-shadow:0 0 0 3px #FFD93D, 0 8px 24px rgba(255,217,61,.30), 0 1px 0 rgba(255,255,255,.6) inset;}
+  .grid-panel.danger-mid{box-shadow:0 0 0 3px #FF9F45, 0 8px 24px rgba(255,159,69,.34), 0 1px 0 rgba(255,255,255,.6) inset;}
+  .grid-panel.danger-hi{box-shadow:0 0 0 3px #FF6B6B, 0 8px 28px rgba(255,107,107,.40), 0 1px 0 rgba(255,255,255,.6) inset; animation:dangerPulse 1s ease-in-out infinite;}
+  @keyframes dangerPulse{0%,100%{box-shadow:0 0 0 3px #FF6B6B, 0 8px 28px rgba(255,107,107,.40), 0 1px 0 rgba(255,255,255,.6) inset;}50%{box-shadow:0 0 0 4px #ff5050, 0 8px 32px rgba(255,80,80,.55), 0 1px 0 rgba(255,255,255,.6) inset;}}
+
+  /* P1: dead (unplaceable) tray slot */
+  .slot.dead .pcell{filter:grayscale(.35) brightness(.9);}
+  .slot.dead::before{
+    content:""; position:absolute; inset:6px; border-radius:10px;
+    background:repeating-linear-gradient(45deg, rgba(255,80,80,.22) 0 5px, rgba(255,80,80,.06) 5px 10px);
+    pointer-events:none;
+  }
+  .slot.dead::after{
+    content:"✕"; position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    color:#ff5050; font-size:30px; font-weight:800; pointer-events:none;
+    text-shadow:0 1px 3px rgba(255,255,255,.9);
+  }
+
+  /* P2: pinch banner */
+  #pinch{
+    position:absolute; left:50%; top:38%; transform:translate(-50%,-50%) scale(.6);
+    background:linear-gradient(90deg,#FF6B6B,#FF9F45); color:#fff; font-weight:800; font-size:20px;
+    padding:8px 18px; border-radius:30px; letter-spacing:2px; z-index:25; pointer-events:none;
+    box-shadow:0 6px 18px rgba(255,107,107,.45); opacity:0; transition:opacity .2s, transform .2s;
+    text-shadow:0 1px 2px rgba(0,0,0,.2);
+  }
+  #pinch.show{opacity:1; transform:translate(-50%,-50%) scale(1); animation:pinchBlink .5s ease-in-out infinite;}
+  @keyframes pinchBlink{0%,100%{opacity:1;}50%{opacity:.55;}}
+
+  /* P3: enhanced line clear */
+  .cell.clearing{animation:clearFlash .26s ease forwards;}
+  @keyframes clearFlash{0%{filter:brightness(1); transform:scale(1);}25%{filter:brightness(2.8) saturate(1.4); transform:scale(1.12);}60%{filter:brightness(2);}100%{transform:scale(0); opacity:0;}}
+  .floatscore{font-size:28px !important; animation:floatUp 1s ease forwards !important;}
+  .floatscore.combo{color:#FF9F45; font-size:32px !important; text-shadow:0 2px 8px rgba(255,159,69,.5) !important;}
+  @keyframes floatUp{0%{transform:translate(-50%,0) scale(.6); opacity:0;}18%{opacity:1; transform:translate(-50%,-8px) scale(1.25);}100%{transform:translate(-50%,-72px) scale(1); opacity:0;}}
+
+  /* P3: NEW BEST flash in overlay */
+  .newbest{color:#FF6B6B; animation:newbestPop .6s ease infinite alternate;}
+  @keyframes newbestPop{0%{transform:scale(1); text-shadow:0 0 0 rgba(255,107,107,0);}100%{transform:scale(1.08); text-shadow:0 0 14px rgba(255,107,107,.6);}}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <button class="iconbtn" id="muteBtn" aria-label="サウンド切替">🔊</button>
+      <div class="bestbox">BEST <b id="best">0</b></div>
+    </div>
+    <div class="scorewrap">
+      <span class="score-label">SCORE</span>
+      <span id="score">0</span>
+      <span class="combo" id="combo"></span>
+    </div>
+    <div class="grid-panel" id="gridPanel">
+      <div class="grid" id="grid"></div>
+      <div id="pinch">ピンチ!</div>
+      <div class="overlay" id="overlay">
+        <div class="ocard">
+          <h2>GAME OVER</h2>
+          <div class="lbl">スコア</div><div class="v" id="finalScore">0</div>
+          <div class="lbl">ベスト</div><div class="v" id="finalBest" style="font-size:22px;">0</div>
+          <div id="newbest" style="display:none; font-size:16px; font-weight:800; margin-bottom:14px;" class="newbest">★ NEW BEST! ★</div>
+          <button class="retry" id="retryBtn">もう一度</button>
+        </div>
+      </div>
+    </div>
+    <div class="tray" id="tray"></div>
+    <div class="hint">ブロックを長押ししてグリッドへ置こう ・ 行か列が揃うと消える</div>
+  </div>
+
+<script>
+"use strict";
+const SIZE = 8;
+const COLORS = ["#FF6B6B","#FFD93D","#6BCB77","#4D96FF","#9B72CB","#FF9F45","#FF8FAB"];
+
+// --- Shapes (1-5 cells). Families: 1x1, domino, I(3), square, L, T, plus (+) ---
+const SHAPES = [
+  [[1]],                                  // 1x1
+  [[1,1]], [[1],[1]],                     // domino
+  [[1,1,1]], [[1],[1],[1]],               // I(3)
+  [[1,1],[1,1]],                          // square 2x2 (4)
+  // L(3) corner + rotations
+  [[1,0],[1,1]], [[1,1],[1,0]], [[1,1],[0,1]], [[0,1],[1,1]],
+  // L(4) + rotations
+  [[1,0,0],[1,1,1]], [[1,1],[1,0],[1,0]], [[1,1,1],[0,0,1]], [[0,1],[0,1],[1,1]],
+  // I(4)
+  [[1,1,1,1]], [[1],[1],[1],[1]],
+  // T(4) + rotations
+  [[1,1,1],[0,1,0]], [[1,0],[1,1],[1,0]], [[0,1,0],[1,1,1]], [[0,1],[1,1],[0,1]],
+  // S/Z(4)
+  [[0,1,1],[1,1,0]], [[1,1,0],[0,1,1]],
+  // I(5)
+  [[1,1,1,1,1]], [[1],[1],[1],[1],[1]],
+  // plus(5)
+  [[0,1,0],[1,1,1],[0,1,0]],
+];
+
+// --- State ---
+let grid;              // 2D array of color string or null
+let tray;              // array of 3 {shape, color} or null
+let score, best, muted;
+let drag = null;       // {idx, shape, color, floater, cells:[[r,c]...], originEl}
+let busy = false;      // lock during clear animation
+let chain = 0;         // consecutive clear-causing placements (P3 combo)
+let prevBest = 0;      // for NEW BEST detection on game over
+
+const $ = id => document.getElementById(id);
+const gridEl = $("grid"), trayEl = $("tray"), scoreEl = $("score"), bestEl = $("best");
+const overlayEl = $("overlay"), gridPanel = $("gridPanel"), pinchEl = $("pinch");
+const muteBtn = $("muteBtn");
+
+// --- Persistence ---
+function load(){
+  best = parseInt(localStorage.getItem("wakuwaku_best")||"0",10)||0;
+  muted = localStorage.getItem("wakuwaku_mute")==="1";
+}
+function saveBest(){ localStorage.setItem("wakuwaku_best", String(best)); }
+function saveMute(){ localStorage.setItem("wakuwaku_mute", muted?"1":"0"); }
+
+// --- Audio (Web Audio API, no external files) ---
+let actx = null;
+function ensureAudio(){
+  if(!actx){ try{ actx = new (window.AudioContext||window.webkitAudioContext)(); }catch(e){} }
+  if(actx && actx.state==="suspended") actx.resume();
+}
+function tone(freq, dur, type, gain, delay){
+  if(muted || !actx) return;
+  const t0 = actx.currentTime + (delay||0);
+  const o = actx.createOscillator(), g = actx.createGain();
+  o.type = type||"sine"; o.frequency.setValueAtTime(freq, t0);
+  g.gain.setValueAtTime(0, t0);
+  g.gain.linearRampToValueAtTime(gain||0.18, t0+0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0+dur);
+  o.connect(g); g.connect(actx.destination);
+  o.start(t0); o.stop(t0+dur+0.02);
+}
+const SE = {
+  pop(){ tone(520, .08, "triangle", .14); },
+  place(){ tone(360, .09, "sine", .16); tone(540,.07,"sine",.1,.02); },
+  clear(n){
+    const base=[523,659,784,988,1175];
+    for(let i=0;i<Math.min(n+2,5);i++) tone(base[i], .14, "triangle", .16, i*0.05);
+  },
+  bad(){ tone(150, .16, "sawtooth", .12); },
+  over(){ [440,330,247,165].forEach((f,i)=>tone(f,.22,"sine",.16,i*0.12)); },
+};
+function vib(pat){ if(muted) return; if(navigator.vibrate) try{navigator.vibrate(pat);}catch(e){} }
+
+// --- Helpers ---
+function emptyGrid(){ return Array.from({length:SIZE},()=>Array(SIZE).fill(null)); }
+function shapeCells(shape){
+  const out=[];
+  for(let r=0;r<shape.length;r++) for(let c=0;c<shape[r].length;c++) if(shape[r][c]) out.push([r,c]);
+  return out;
+}
+function randColor(){ return COLORS[Math.floor(Math.random()*COLORS.length)]; }
+// P3c: weight by cell count — small blocks (1-2 cells) more common, helps avoid dead-ends
+function randShape(){
+  const weighted = SHAPES.map(s=>{
+    const n = shapeCells(s).length;
+    // 1cell:5, 2:4, 3:3, 4:2, 5:1.2
+    const w = n<=1?5 : n===2?4 : n===3?3 : n===4?2 : 1.2;
+    return {s, w};
+  });
+  const total = weighted.reduce((a,b)=>a+b.w,0);
+  let r = Math.random()*total;
+  for(const o of weighted){ r -= o.w; if(r<=0) return o.s; }
+  return weighted[0].s;
+}
+function newTray(){
+  tray = [0,1,2].map(()=>({shape:randShape(), color:randColor()}));
+}
+function fitsAt(shape, gr, topR, topC){
+  for(const [r,c] of shapeCells(shape)){
+    const nr=topR+r, nc=topC+c;
+    if(nr<0||nr>=SIZE||nc<0||nc>=SIZE) return false;
+    if(gr[nr][nc]) return false;
+  }
+  return true;
+}
+function fitsAnywhere(shape, gr){
+  for(let r=0;r<SIZE;r++) for(let c=0;c<SIZE;c++) if(fitsAt(shape,gr,r,c)) return true;
+  return false;
+}
+function anyFits(gr){
+  for(const t of tray){ if(t && fitsAnywhere(t.shape, gr)) return true; }
+  return false;
+}
+
+// --- P1/P2: status visualization ---
+function fillRatio(){
+  let filled=0;
+  for(let r=0;r<SIZE;r++) for(let c=0;c<SIZE;c++) if(grid[r][c]) filled++;
+  return filled/(SIZE*SIZE);
+}
+// count of non-null tray blocks that CANNOT be placed anywhere on current grid
+function deadCount(){
+  let dead=0, alive=0;
+  for(const t of tray){ if(!t) continue; if(fitsAnywhere(t.shape, grid)) alive++; else dead++; }
+  return {dead, alive, total:dead+alive};
+}
+function updateDanger(){
+  const f = fillRatio();
+  // edge glow on grid-panel (Designer v1 thresholds: 55/70/85)
+  gridPanel.classList.remove("danger-low","danger-mid","danger-hi");
+  if(f >= 0.85) gridPanel.classList.add("danger-hi");
+  else if(f >= 0.70) gridPanel.classList.add("danger-mid");
+  else if(f >= 0.55) gridPanel.classList.add("danger-low");
+  // empty-cell tints (Designer v2 thresholds: 70/85/95) — 二重シグナル
+  gridEl.classList.remove("d-low","d-mid","d-hi");
+  if(f >= 0.95) gridEl.classList.add("d-hi");
+  else if(f >= 0.85) gridEl.classList.add("d-mid");
+  else if(f >= 0.70) gridEl.classList.add("d-low");
+}
+function updateTrayDead(){
+  trayEl.querySelectorAll(".slot").forEach((slot)=>{
+    slot.classList.remove("dead");
+    const idx = +slot.dataset.idx;
+    const t = tray[idx];
+    if(t && !fitsAnywhere(t.shape, grid)) slot.classList.add("dead");
+  });
+}
+function updatePinch(){
+  const {dead, alive, total} = deadCount();
+  // pinch = 2 of remaining can't be placed AND at least 1 still alive (not full GO)
+  if(total>=2 && dead>=2 && alive>=1 && !overlayEl.classList.contains("show")){
+    pinchEl.classList.add("show");
+  }else{
+    pinchEl.classList.remove("show");
+  }
+}
+function refreshStatus(){
+  updateDanger();
+  updateTrayDead();
+  updatePinch();
+}
+
+// --- Rendering ---
+function renderGrid(){
+  gridEl.innerHTML="";
+  for(let r=0;r<SIZE;r++){
+    for(let c=0;c<SIZE;c++){
+      const d=document.createElement("div");
+      d.className="cell";
+      const col=grid[r][c];
+      if(col){ d.classList.add("filled"); d.style.background=col; d.dataset.color=col; }
+      d.dataset.r=r; d.dataset.c=c;
+      gridEl.appendChild(d);
+    }
+  }
+  updateDanger();
+}
+function renderPiece(shape, color, cellPx){
+  const p=document.createElement("div");
+  p.className="piece";
+  p.style.gridTemplateColumns=`repeat(${shape[0].length}, ${cellPx}px)`;
+  p.style.gridTemplateRows=`repeat(${shape.length}, ${cellPx}px)`;
+  for(let r=0;r<shape.length;r++) for(let c=0;c<shape[r].length;c++){
+    const cell=document.createElement("div");
+    if(shape[r][c]){ cell.className="pcell"; cell.style.background=color; }
+    p.appendChild(cell);
+  }
+  return p;
+}
+function renderTray(){
+  trayEl.innerHTML="";
+  tray.forEach((t,i)=>{
+    const slot=document.createElement("div");
+    slot.className="slot"+(t?"":" empty");
+    slot.dataset.idx=i;
+    if(t){
+      const cs = trayCellPx();
+      slot.appendChild(renderPiece(t.shape, t.color, cs));
+    }
+    trayEl.appendChild(slot);
+  });
+  updateTrayDead();
+}
+function trayCellPx(){
+  // size a tray piece to fit slot (max ~5 cells wide)
+  const slotW = (trayEl.clientWidth - 16) / 3;
+  const maxByW = (slotW - 20) / 5;
+  return Math.max(12, Math.min(18, Math.floor(maxByW)));
+}
+function gridCellPx(){
+  const aCell = gridEl.querySelector(".cell");
+  if(aCell) return aCell.getBoundingClientRect().width;
+  return (gridEl.clientWidth - 7*3)/8;
+}
+
+// --- Drag (pointer events, touch-first) ---
+function clearGhost(){
+  gridEl.querySelectorAll(".ghost,.ghost-ok,.ghost-bad").forEach(c=>{
+    c.classList.remove("ghost","ghost-ok","ghost-bad"); c.style.removeProperty("--g");
+  });
+}
+function showGhost(shape, color, topR, topC, ok){
+  clearGhost();
+  for(const [r,c] of shapeCells(shape)){
+    const nr=topR+r, nc=topC+c;
+    if(nr<0||nr>=SIZE||nc<0||nc>=SIZE) continue;
+    const cell = gridEl.children[nr*SIZE+nc];
+    if(!cell) continue;
+    cell.classList.add("ghost", ok?"ghost-ok":"ghost-bad");
+    if(ok) cell.style.setProperty("--g", color);
+  }
+}
+function targetCell(floaterLeft, floaterTop){
+  const rect = gridEl.getBoundingClientRect();
+  const cs = gridCellPx();
+  const gap = 3;
+  const col = Math.round((floaterLeft - rect.left - 10) / (cs+gap));
+  const row = Math.round((floaterTop - rect.top - 10) / (cs+gap));
+  return [row, col];
+}
+
+function startDrag(idx, ev){
+  const t = tray[idx];
+  if(!t || busy || overlayEl.classList.contains("show")) return;
+  ensureAudio();
+  SE.pop(); vib(8);
+  const cs = gridCellPx();
+  const floater = renderPiece(t.shape, t.color, cs);
+  floater.id="floater";
+  document.body.appendChild(floater);
+  drag = { idx, shape:t.shape, color:t.color, floater };
+  // mark slot as dragging (visually empty soon)
+  const slot = trayEl.querySelector(`.slot[data-idx="${idx}"]`);
+  if(slot) slot.classList.add("empty");
+  moveDrag(ev);
+  ev.preventDefault();
+}
+function moveDrag(ev){
+  if(!drag) return;
+  const cs = gridCellPx(), gap=3;
+  const w = drag.shape[0].length*(cs+gap)-gap;
+  const h = drag.shape.length*(cs+gap)-gap;
+  const lift = cs*1.4; // lift above finger
+  const left = ev.clientX - w/2;
+  const top = ev.clientY - h/2 - lift;
+  drag.floater.style.left = left+"px";
+  drag.floater.style.top = top+"px";
+  const [r,c] = targetCell(left, top);
+  const ok = r>=0 && fitsAt(drag.shape, grid, r, c);
+  showGhost(drag.shape, drag.color, r, c, ok && r>=0);
+  drag.lastR=r; drag.lastC=c; drag.lastOk=ok;
+}
+function endDrag(ev){
+  if(!drag) return;
+  const {idx, shape, color, lastR, lastC, lastOk} = drag;
+  const floater = drag.floater;
+  if(lastOk && lastR>=0){
+    placePiece(idx, shape, color, lastR, lastC, floater);
+  } else {
+    // invalid -> shake + return
+    floater.classList.add("shaking");
+    SE.bad(); vib([18,40,18]);
+    setTimeout(()=>{
+      floater.remove();
+      const slot = trayEl.querySelector(`.slot[data-idx="${idx}"]`);
+      if(slot){ slot.classList.remove("empty"); }
+    }, 240);
+  }
+  clearGhost();
+  drag = null;
+}
+function placePiece(idx, shape, color, topR, topC, floater){
+  for(const [r,c] of shapeCells(shape)){
+    grid[topR+r][topC+c] = color;
+  }
+  tray[idx] = null;
+  floater.remove();
+  SE.place(); vib(12);
+  renderGrid(); renderTray();
+  // check clears
+  const cleared = computeClears();
+  if(cleared.cells.length){
+    chain++;
+    busy = true;
+    animateClears(cleared, ()=>{ busy=false; afterPlace(); });
+  } else {
+    chain = 0;
+    afterPlace();
+  }
+}
+function computeClears(){
+  const rows=[], cols=[];
+  for(let r=0;r<SIZE;r++){ if(grid[r].every(v=>v)) rows.push(r); }
+  for(let c=0;c<SIZE;c++){ let full=true; for(let r=0;r<SIZE;r++){ if(!grid[r][c]){full=false;break;} } if(full) cols.push(c); }
+  const cellSet = new Set();
+  for(const r of rows) for(let c=0;c<SIZE;c++) cellSet.add(r*SIZE+c);
+  for(const c of cols) for(let r=0;r<SIZE;r++) cellSet.add(r*SIZE+c);
+  return { rows, cols, cells:[...cellSet].map(k=>[Math.floor(k/SIZE),k%SIZE]) };
+}
+function animateClears(info, done){
+  const lines = info.rows.length + info.cols.length;
+  const lineMult = lines>=2?lines:1;
+  const chainMult = chain>=2?chain:1;     // P3: consecutive-clear chain bonus
+  const pts = info.cells.length * 10 * lineMult * chainMult;
+  score += pts;
+  scoreEl.textContent = score;
+  // combo / chain label
+  const cb=$("combo");
+  if(chainMult>=2){ cb.textContent="×"+chainMult+" CHAIN!"; cb.style.opacity=1; setTimeout(()=>cb.style.opacity=0,1000); }
+  else if(lineMult>=2){ cb.textContent="×"+lines+" COMBO!"; cb.style.opacity=1; setTimeout(()=>cb.style.opacity=0,900); }
+  // flash + shrink (enhanced via CSS .clearing)
+  info.cells.forEach(([r,c])=>{
+    const cell = gridEl.children[r*SIZE+c];
+    if(cell) cell.classList.add("clearing");
+  });
+  SE.clear(lines + (chainMult-1)); vib(chainMult>=2?[24,30,24,30,24,30,24]: lines>=2?[24,30,24,30,24]:30);
+  // floating score near grid center (enhanced, bigger on chain)
+  const rect = gridEl.getBoundingClientRect();
+  const fs = document.createElement("div");
+  fs.className="floatscore" + (chainMult>=2?" combo":"");
+  fs.textContent="+"+pts + (chainMult>=2?("  ×"+chainMult):"");
+  fs.style.left=(rect.left+rect.width/2)+"px";
+  fs.style.top=(rect.top+rect.height/2-20)+"px";
+  document.body.appendChild(fs);
+  setTimeout(()=>fs.remove(), 1000);
+  setTimeout(()=>{
+    info.cells.forEach(([r,c])=>{ grid[r][c]=null; });
+    renderGrid();
+    done();
+  }, 270);
+}
+function afterPlace(){
+  // refill when all 3 used
+  if(tray.every(t=>!t)){ newTray(); renderTray(); }
+  refreshStatus();
+  // game over check: only when ALL remaining tray blocks are unplaceable
+  if(!anyFits(grid)){
+    gameOver();
+  }
+}
+function gameOver(){
+  const isBest = score>best;
+  if(isBest){ best=score; saveBest(); bestEl.textContent=best; }
+  gridPanel.classList.add("dim");
+  pinchEl.classList.remove("show");
+  SE.over(); vib([200,100,200,80,200]);
+  $("finalScore").textContent=score;
+  $("finalBest").textContent=best;
+  $("newbest").style.display = isBest ? "block" : "none";
+  setTimeout(()=>overlayEl.classList.add("show"), 280);
+}
+
+// --- Game lifecycle ---
+function newGame(){
+  grid = emptyGrid();
+  score = 0;
+  chain = 0;
+  scoreEl.textContent=0;
+  gridPanel.classList.remove("dim","danger-low","danger-mid","danger-hi");
+  gridEl.classList.remove("d-low","d-mid","d-hi");
+  pinchEl.classList.remove("show");
+  overlayEl.classList.remove("show");
+  $("newbest").style.display="none";
+  newTray();
+  renderGrid(); renderTray();
+  refreshStatus();
+}
+
+// --- Input wiring ---
+trayEl.addEventListener("pointerdown", e=>{
+  const slot = e.target.closest(".slot");
+  if(!slot) return;
+  const idx = +slot.dataset.idx;
+  startDrag(idx, e);
+});
+window.addEventListener("pointermove", e=>{ if(drag) moveDrag(e); }, {passive:false});
+window.addEventListener("pointerup", e=>{ if(drag) endDrag(e); });
+window.addEventListener("pointercancel", e=>{ if(drag){ clearGhost(); drag.floater.remove(); const s=trayEl.querySelector(`.slot[data-idx="${drag.idx}"]`); if(s)s.classList.remove("empty"); drag=null; } });
+
+$("retryBtn").addEventListener("click", ()=>{ ensureAudio(); newGame(); });
+muteBtn.addEventListener("click", ()=>{
+  muted = !muted; saveMute();
+  muteBtn.textContent = muted ? "🔇" : "🔊";
+  if(!muted){ ensureAudio(); SE.pop(); }
+});
+// prevent context menu / scroll gestures interfering
+window.addEventListener("contextmenu", e=>{ if(drag) e.preventDefault(); });
+
+// re-render tray piece sizes on resize
+let rzt;
+window.addEventListener("resize", ()=>{ clearTimeout(rzt); rzt=setTimeout(()=>{ renderTray(); }, 150); });
+
+// --- Boot ---
+load();
+bestEl.textContent = best;
+muteBtn.textContent = muted ? "🔇" : "🔊";
+newGame();
+</script>
+</body>
+</html>

@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>ヘビさんスネーク</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { width: 100%; height: 100%; overflow: hidden;
+    font-family: "Hiragino Maru Gothic ProN", "Rounded Mplus 1c", system-ui, sans-serif;
+    user-select: none; -webkit-user-select: none; touch-action: none; background: #35502f; }
+  #c { position: fixed; inset: 0; display: block; touch-action: none; }
+
+  /* ---- HUD ---- */
+  #hud { position: fixed; top: 0; left: 0; right: 0; padding: 12px 16px;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    pointer-events: none; }
+  #score { font-size: 30px; font-weight: 900; color: #fff;
+    text-shadow: 0 3px 0 #1f6b2a, 0 5px 6px rgba(0,0,0,.3); }
+  #best { font-size: 15px; font-weight: 800; color: #d7f7c8; text-shadow: 0 2px 3px rgba(0,0,0,.4); }
+  #btn-mute { pointer-events: auto; font-size: 22px; width: 46px; height: 46px; border: none;
+    border-radius: 50%; background: rgba(255,255,255,.8); box-shadow: 0 4px 0 rgba(0,0,0,.15); }
+
+  /* ---- boost button ---- */
+  #btn-boost { position: fixed; right: 22px; bottom: calc(26px + env(safe-area-inset-bottom));
+    width: 104px; height: 104px; border: none; border-radius: 50%; font-size: 46px; color: #fff;
+    background: #ff8a00; box-shadow: 0 6px 0 rgba(0,0,0,.25); touch-action: none;
+    display: flex; align-items: center; justify-content: center; }
+  #btn-boost:active { transform: translateY(4px); box-shadow: 0 2px 0 rgba(0,0,0,.25); }
+
+  /* ---- overlays ---- */
+  .overlay { position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 18px; text-align: center; padding: 24px;
+    background: radial-gradient(circle at 50% 35%, rgba(30,80,30,.72), rgba(15,45,15,.82)); }
+  .overlay h1 { color: #fff; font-size: clamp(28px, 8vw, 52px); font-weight: 900; line-height: 1.12;
+    text-shadow: 0 4px 0 #1f6b2a, 0 7px 10px rgba(0,0,0,.35); }
+  .overlay .msg { color: #eafce0; font-size: 19px; font-weight: 800; line-height: 1.5; }
+  .bigbtn { border: none; background: #ffcf33; color: #6a4a00; font-size: 28px; font-weight: 900;
+    padding: 15px 48px; border-radius: 36px; box-shadow: 0 6px 0 #d9a916; cursor: pointer; }
+  .bigbtn:active { transform: translateY(3px); box-shadow: 0 3px 0 #d9a916; }
+  .hidden { display: none !important; }
+
+  /* ---- difficulty panel ---- */
+  #btn-cfg { pointer-events: auto; font-size: 22px; width: 46px; height: 46px; border: none;
+    border-radius: 50%; background: rgba(255,255,255,.8); box-shadow: 0 4px 0 rgba(0,0,0,.15); }
+  #cfg { position: fixed; left: 50%; top: 50%; transform: translate(-50%,-50%);
+    width: min(360px, 92vw); max-height: 88vh; overflow-y: auto; z-index: 20;
+    background: rgba(18,42,18,.94); border: 3px solid #6fce4e; border-radius: 20px;
+    padding: 16px 18px; color: #fff; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
+  #cfg h2 { font-size: 22px; font-weight: 900; text-align: center; margin-bottom: 10px; }
+  #cfg .presets { display: flex; gap: 8px; margin-bottom: 12px; }
+  #cfg .presets button { flex: 1; border: none; border-radius: 12px; padding: 9px 0;
+    font-size: 15px; font-weight: 900; background: #3f8f3a; color: #fff; }
+  #cfg .presets button.on { background: #ffcf33; color: #5a3d00; }
+  #cfg .row { margin: 10px 0; }
+  #cfg .row .lab { display: flex; justify-content: space-between; font-size: 14px; font-weight: 800; margin-bottom: 3px; }
+  #cfg .row .val { color: #ffe27a; }
+  #cfg input[type=range] { width: 100%; accent-color: #6fce4e; }
+  #cfg .note { font-size: 12px; color: #bfe6ac; margin: 6px 0 12px; line-height: 1.4; }
+  #cfg .acts { display: flex; gap: 8px; }
+  #cfg .acts button { flex: 1; border: none; border-radius: 14px; padding: 12px 0;
+    font-size: 17px; font-weight: 900; }
+  #cfg-restart { background: #ff8a00; color: #fff; }
+  #cfg-close { background: #ffcf33; color: #6a4a00; }
+</style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+
+  <div id="hud">
+    <div id="score">ながさ: 0</div>
+    <div style="display:flex; align-items:center; gap:10px; pointer-events:none;">
+      <div id="best">さいこう: 0</div>
+      <button id="btn-cfg">⚙️</button>
+      <button id="btn-mute">🔊</button>
+    </div>
+  </div>
+
+  <button id="btn-boost" class="hidden">🚀</button>
+
+  <div id="cfg" class="hidden">
+    <h2>なんいど ちょうせい</h2>
+    <div class="presets">
+      <button data-preset="easy">かんたん</button>
+      <button data-preset="normal">ふつう</button>
+      <button data-preset="hard">むずかしい</button>
+    </div>
+    <div id="cfg-rows"></div>
+    <div class="note">スライダーはすぐ反映されます。「もういちど」で最初からやり直します。</div>
+    <div class="acts">
+      <button id="cfg-restart">さいしょから</button>
+      <button id="cfg-close">とじる</button>
+    </div>
+  </div>
+
+  <div id="title" class="overlay">
+    <h1>ヘビさん<br>スネーク</h1>
+    <div class="msg">ゆびで むきをかえて<br>フルーツを たべよう！<br>🚀ボタンで ダッシュ<br>じぶんより 小さいヘビは たおせる！</div>
+    <button id="btn-start" class="bigbtn">スタート！</button>
+    <button id="btn-cfg-title" class="bigbtn" style="background:#6fce4e;color:#fff;box-shadow:0 6px 0 #3f8f3a;font-size:20px;padding:11px 26px;">⚙️ なんいど</button>
+  </div>
+
+  <div id="over" class="overlay hidden">
+    <h1>やられた！</h1>
+    <div class="msg" id="over-msg">ながさ: 0</div>
+    <button id="btn-retry" class="bigbtn">もういちど</button>
+  </div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---- config ------------------------------------------------------
+  const WORLD = 2600;          // square world, wraps around (torus)
+  const VIEW = 780;            // world units visible across the short screen edge
+  const SEG_SP = 13;           // spacing between body segments (world units)
+  const HEAD_R = 15;           // player/enemy head radius
+  const BASE_SPEED = 132;      // units / second
+  const BOOST_SPEED = 235;
+  const TURN_RATE = 6.2;       // radians / second the heading can swing
+  const BIG_MIN = 55;          // a snake this long counts as "big"
+  const START_SEGS = 10;
+
+  // ---- tunable difficulty (live-editable via the ⚙️ panel) ---------
+  //  enemies : how many rival snakes roam
+  //  bosses  : how many of them are huge "boss" roamers
+  //  food    : fruit orbs kept in the world
+  //  growth  : segments gained per fruit (lower = grow slower)
+  //  rival   : enemy size relative to you (higher = tougher)
+  const PRESETS = {
+    easy:   { enemies: 4, bosses: 1, food: 60,  growth: 0.5,  rival: 0.7 },
+    normal: { enemies: 6, bosses: 2, food: 85,  growth: 0.33, rival: 1.0 },
+    hard:   { enemies: 10, bosses: 3, food: 130, growth: 0.28, rival: 1.5 },
+  };
+  const CFG_KEY = 'hebi-cfg';
+  let cfg = Object.assign({}, PRESETS.normal, safeParse(localStorage.getItem(CFG_KEY)));
+  function safeParse(s) { try { return s ? JSON.parse(s) : {}; } catch (e) { return {}; } }
+  function saveCfg() { try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) {} }
+
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+  let W = 0, H = 0, DPR = Math.min(2, window.devicePixelRatio || 1), zoom = 1;
+  function fit() {
+    W = window.innerWidth; H = window.innerHeight;
+    canvas.width = W * DPR; canvas.height = H * DPR;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    zoom = Math.min(W, H) / VIEW;
+  }
+  window.addEventListener('resize', fit);
+
+  // ---- torus helpers ----------------------------------------------
+  const wrap = (v) => ((v % WORLD) + WORLD) % WORLD;
+  const wd = (a, b) => { let d = (a - b) % WORLD; if (d > WORLD / 2) d -= WORLD; if (d < -WORLD / 2) d += WORLD; return d; };
+  const rnd = (a, b) => a + Math.random() * (b - a);
+
+  // ---- audio -------------------------------------------------------
+  let actx = null, master = null, muted = false;
+  function initAudio() {
+    if (actx) return;
+    try {
+      actx = new (window.AudioContext || window.webkitAudioContext)();
+      master = actx.createGain(); master.gain.value = muted ? 0 : 0.5; master.connect(actx.destination);
+    } catch (e) { actx = null; }
+  }
+  function beep(freq, dur, type = 'sine', vol = 0.4, at = 0) {
+    if (!actx) return;
+    const o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.value = freq; o.connect(g); g.connect(master);
+    const t0 = actx.currentTime + at;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+  const sfxEat = () => beep(680, 0.07, 'square', 0.32);
+  const sfxKill = () => { beep(520, 0.1, 'square', 0.4); beep(780, 0.12, 'square', 0.4, 0.07); };
+  const sfxOver = () => { beep(300, 0.18, 'sawtooth', 0.4); beep(200, 0.22, 'sawtooth', 0.4, 0.14); beep(120, 0.3, 'sawtooth', 0.4, 0.3); };
+
+  document.getElementById('btn-mute').addEventListener('click', () => {
+    muted = !muted;
+    if (master) master.gain.value = muted ? 0 : 0.5;
+    document.getElementById('btn-mute').textContent = muted ? '🔇' : '🔊';
+  });
+
+  // ---- colours -----------------------------------------------------
+  const FRUIT = ['#ff5d5d', '#ff8fbf', '#ffb23e', '#b06bff', '#4fd0ff', '#8cff5b'];
+  const ENEMY = ['#5bb7e6', '#ffb23e', '#b06bff', '#ff8fbf', '#4fd0ff', '#ff7a5b', '#c0e850', '#ff5d99'];
+
+  // ---- state -------------------------------------------------------
+  let snakes, foods, player, state, last, camX, camY;
+  const BEST_KEY = 'hebisan-best';
+  let best = +(localStorage.getItem(BEST_KEY) || 0);
+  document.getElementById('best').textContent = 'さいこう: ' + best;
+
+  // thickness grows with length but on a gentle, saturating curve, so it
+  // fattens much more slowly than the snake lengthens.
+  function widthFor(n) { return 12 + 10 * (1 - 1 / (1 + n / 45)); }
+
+  function makeSnake(x, y, segs, color, isPlayer) {
+    const angle = rnd(0, Math.PI * 2);
+    const hr = widthFor(segs);
+    const s = {
+      x, y, angle, targetAngle: angle, color, isPlayer,
+      headR: hr, bodyR: hr - 2,
+      segCount: segs, alive: true, boosting: false, boostDrain: 0,
+      path: [], pathAcc: 0, aiTimer: rnd(0.5, 2), respawn: 0,
+    };
+    // seed a straight tail so the body has points to sample immediately
+    for (let i = 0; i < segs * SEG_SP + 40; i++) {
+      s.path.push({ x: wrap(x - Math.cos(angle) * i), y: wrap(y - Math.sin(angle) * i) });
+    }
+    return s;
+  }
+
+  function spawnFoodAt(x, y, c, r, val) {
+    foods.push({ x: wrap(x), y: wrap(y), c: c || FRUIT[(Math.random() * FRUIT.length) | 0], r: r || rnd(5, 7), val: val || 1 });
+  }
+
+  function farFromPlayer(x, y) {
+    return !player || Math.hypot(wd(x, player.x), wd(y, player.y)) > 320;
+  }
+
+  function reset() {
+    foods = [];
+    for (let i = 0; i < cfg.food; i++) spawnFoodAt(rnd(0, WORLD), rnd(0, WORLD));
+    snakes = [];
+    player = makeSnake(WORLD / 2, WORLD / 2, START_SEGS, '#2fb84e', true);
+    snakes.push(player);
+    topUpEnemies();
+    camX = player.x; camY = player.y;
+    updateScore();
+  }
+
+  const aliveEnemies = () => snakes.filter((s) => !s.isPlayer && s.alive);
+
+  // Enemy length scales with the player so rivals stay relevant: mostly
+  // prey/peers, sometimes a strong rival bigger than you.
+  function spawnLen() {
+    const base = Math.max(16, player ? player.segCount : 16);
+    const r = Math.random();
+    let f;
+    if (r < 0.45) f = rnd(0.35, 0.8);      // prey (huntable)
+    else if (r < 0.8) f = rnd(0.8, 1.25);  // peer
+    else f = rnd(1.3, 2.3);                // strong rival
+    return Math.max(6, Math.round(base * f * cfg.rival));
+  }
+
+  function addEnemy(wantBig) {
+    let x, y, tries = 0;
+    do { x = rnd(0, WORLD); y = rnd(0, WORLD); tries++; } while (!farFromPlayer(x, y) && tries < 30);
+    const len = wantBig ? Math.round(rnd(70, 150) * cfg.rival) : spawnLen();
+    snakes.push(makeSnake(x, y, len, ENEMY[(Math.random() * ENEMY.length) | 0], false));
+  }
+
+  // keep the population full, a few big "boss" roamers about, and trim any
+  // extras when the sliders lower the counts.
+  function topUpEnemies() {
+    while (aliveEnemies().length < cfg.enemies) {
+      const bigs = aliveEnemies().filter((s) => s.segCount >= BIG_MIN).length;
+      addEnemy(bigs < cfg.bosses);
+    }
+    // if the slider was lowered, remove the farthest extra enemies quietly
+    let extra = aliveEnemies().length - cfg.enemies;
+    if (extra > 0) {
+      const far = aliveEnemies()
+        .map((s) => ({ s, d: Math.hypot(wd(s.x, player.x), wd(s.y, player.y)) }))
+        .sort((a, b) => b.d - a.d);
+      for (let i = 0; i < extra; i++) {
+        const idx = snakes.indexOf(far[i].s);
+        if (idx >= 0) snakes.splice(idx, 1);
+      }
+    }
+  }
+
+  function updateScore() {
+    document.getElementById('score').textContent = 'ながさ: ' + (player ? player.segCount : 0);
+  }
+
+  // ---- body sampling: positions of the segments along the path -----
+  function segmentPositions(s, maxCount) {
+    const pts = [];
+    const path = s.path;
+    if (path.length < 2) return pts;
+    let need = SEG_SP, acc = 0;
+    pts.push({ x: path[0].x, y: path[0].y });
+    for (let i = 1; i < path.length && pts.length < maxCount; i++) {
+      const dx = wd(path[i].x, path[i - 1].x), dy = wd(path[i].y, path[i - 1].y);
+      const d = Math.hypot(dx, dy);
+      acc += d;
+      while (acc >= need && pts.length < maxCount) {
+        const over = acc - need;
+        const t = d > 0 ? 1 - over / d : 1;
+        pts.push({ x: wrap(path[i - 1].x + dx * t), y: wrap(path[i - 1].y + dy * t) });
+        need += SEG_SP;
+      }
+    }
+    return pts;
+  }
+
+  // ---- input -------------------------------------------------------
+  // Touch = floating joystick (aim relative to where the finger first
+  // touched, so any direction is comfortable). Mouse = aim toward cursor
+  // (hover, no click needed). A small dead zone stops jitter.
+  const DEAD = 14;
+  let touchOrigin = null, steerAngle = null;
+  function updateSteer(originX, originY, x, y) {
+    const dx = x - originX, dy = y - originY;
+    if (Math.hypot(dx, dy) < DEAD) return;
+    steerAngle = Math.atan2(dy, dx);
+  }
+  canvas.addEventListener('pointerdown', (e) => {
+    initAudio();
+    if (e.pointerType === 'mouse') { updateSteer(W / 2, H / 2, e.clientX, e.clientY); }
+    else { touchOrigin = { x: e.clientX, y: e.clientY }; }
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'mouse') { updateSteer(W / 2, H / 2, e.clientX, e.clientY); }
+    else if (touchOrigin) { updateSteer(touchOrigin.x, touchOrigin.y, e.clientX, e.clientY); }
+  });
+  const endTouch = () => { touchOrigin = null; }; // keep last steerAngle
+  canvas.addEventListener('pointerup', endTouch);
+  canvas.addEventListener('pointercancel', endTouch);
+  canvas.addEventListener('pointerleave', endTouch);
+  function pointerAngle() { return steerAngle; }
+
+  const keys = {};
+  window.addEventListener('keydown', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+    keys[e.key.toLowerCase()] = true;
+    if (e.key === ' ' || e.key === 'Shift') { initAudio(); if (player) player.boosting = true; }
+  });
+  window.addEventListener('keyup', (e) => {
+    keys[e.key.toLowerCase()] = false;
+    if (e.key === ' ' || e.key === 'Shift') { if (player) player.boosting = false; }
+  });
+  function keyAngle() {
+    let x = 0, y = 0;
+    if (keys['arrowleft'] || keys['a']) x -= 1;
+    if (keys['arrowright'] || keys['d']) x += 1;
+    if (keys['arrowup'] || keys['w']) y -= 1;
+    if (keys['arrowdown'] || keys['s']) y += 1;
+    if (x === 0 && y === 0) return null;
+    return Math.atan2(y, x);
+  }
+  const boostBtn = document.getElementById('btn-boost');
+  const boostOn = (e) => { e.preventDefault(); initAudio(); if (player) player.boosting = true; };
+  const boostOff = (e) => { e.preventDefault(); if (player) player.boosting = false; };
+  boostBtn.addEventListener('pointerdown', boostOn);
+  boostBtn.addEventListener('pointerup', boostOff);
+  boostBtn.addEventListener('pointerleave', boostOff);
+  boostBtn.addEventListener('pointercancel', boostOff);
+
+  // ---- simulation --------------------------------------------------
+  function turnToward(s, target, dt) {
+    let d = target - s.angle;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    const max = TURN_RATE * dt;
+    s.angle += Math.max(-max, Math.min(max, d));
+  }
+
+  function aiThink(s, dt) {
+    s.aiTimer -= dt;
+    // seek nearest food within a range
+    let bx = null, by = null, bd = 220 * 220;
+    for (let i = 0; i < foods.length; i += 3) { // sample for speed
+      const f = foods[i];
+      const dx = wd(f.x, s.x), dy = wd(f.y, s.y), d2 = dx * dx + dy * dy;
+      if (d2 < bd) { bd = d2; bx = dx; by = dy; }
+    }
+    // hunt: if clearly bigger than a nearby snake, chase its head to attack
+    let hx = null, hy = null, hd = 240 * 240;
+    for (const o of snakes) {
+      if (o === s || !o.alive) continue;
+      if (s.segCount <= o.segCount * 1.15) continue; // only chase smaller prey
+      const dx = wd(o.x, s.x), dy = wd(o.y, s.y), d2 = dx * dx + dy * dy;
+      if (d2 < hd) { hd = d2; hx = dx; hy = dy; }
+    }
+    if (hx !== null) {
+      s.targetAngle = Math.atan2(hy, hx);
+    } else if (bx !== null) {
+      s.targetAngle = Math.atan2(by, bx);
+    } else if (s.aiTimer <= 0) {
+      s.targetAngle = s.angle + rnd(-1.2, 1.2);
+      s.aiTimer = rnd(0.6, 2.2);
+    }
+    // avoid running into snakes we can't beat; skip while chasing prey
+    const ax = s.x + Math.cos(s.angle) * 34, ay = s.y + Math.sin(s.angle) * 34;
+    if (hx === null) {
+      for (const o of snakes) {
+        if (o === s || !o.alive) continue;
+        if (Math.abs(wd(o.x, s.x)) > 120 || Math.abs(wd(o.y, s.y)) > 120) continue;
+        for (const p of o._segs || []) {
+          if (Math.abs(wd(p.x, ax)) < 22 && Math.abs(wd(p.y, ay)) < 22) {
+            s.targetAngle = s.angle + 1.4; // veer away
+            break;
+          }
+        }
+      }
+    }
+    // hunters boost to close the gap; others rarely
+    s.boosting = (hx !== null ? Math.random() < 0.03 : Math.random() < 0.004) && s.segCount > 12;
+  }
+
+  function advance(s, dt) {
+    // thickness tracks length on the gentle curve
+    s.headR = widthFor(s.segCount); s.bodyR = s.headR - 2;
+    turnToward(s, s.targetAngle, dt);
+    let sp = BASE_SPEED;
+    if (s.boosting && s.segCount > 6) {
+      sp = BOOST_SPEED;
+      s.boostDrain += dt;
+      if (s.boostDrain >= 0.14) { // shed length while boosting, dropping food
+        s.boostDrain = 0; s.segCount--;
+        const tail = (s._segs && s._segs[s._segs.length - 1]) || s;
+        spawnFoodAt(tail.x, tail.y, s.color, 6);
+        if (s.isPlayer) updateScore();
+      }
+    } else { s.boosting = s.boosting && s.segCount > 6; }
+    s.x = wrap(s.x + Math.cos(s.angle) * sp * dt);
+    s.y = wrap(s.y + Math.sin(s.angle) * sp * dt);
+    s.path.unshift({ x: s.x, y: s.y });
+    const keep = Math.ceil((s.segCount + 3) * SEG_SP / (sp * dt || 3)) + 20;
+    if (s.path.length > keep + 60) s.path.length = keep + 60;
+  }
+
+  // grow by a fractional amount; segCount only ticks up on whole units, so
+  // cfg.growth < 1 makes lengthening satisfyingly slow.
+  function grow(s, amount) {
+    s.grow = (s.grow || 0) + amount;
+    let up = false;
+    while (s.grow >= 1) { s.grow -= 1; s.segCount++; up = true; }
+    if (up && s.isPlayer) updateScore();
+  }
+
+  function eatFood(s) {
+    const rr = (s.headR + 9) * (s.headR + 9);
+    for (let i = foods.length - 1; i >= 0; i--) {
+      const f = foods[i];
+      const dx = wd(f.x, s.x), dy = wd(f.y, s.y);
+      if (dx * dx + dy * dy < rr) {
+        foods.splice(i, 1);
+        grow(s, (f.val || 1) * cfg.growth);
+        if (s.isPlayer) sfxEat();
+      }
+    }
+  }
+
+  function killSnake(s) {
+    s.alive = false;
+    // scatter its body into a wide, high-value blob (not a thin line), so
+    // one sweep through the area picks up lots without retracing a path
+    const segs = s._segs || [];
+    const count = Math.max(4, Math.round(s.segCount * 0.7));
+    for (let i = 0; i < count && segs.length; i++) {
+      const p = segs[(Math.random() * segs.length) | 0];
+      const a = rnd(0, Math.PI * 2), rad = rnd(0, 46);
+      spawnFoodAt(p.x + Math.cos(a) * rad, p.y + Math.sin(a) * rad, s.color, rnd(7, 10), 2);
+    }
+    if (s.isPlayer) gameOver();
+    else s.respawn = rnd(1.5, 3.5);
+  }
+
+  function collisions() {
+    for (const s of snakes) {
+      if (!s.alive) continue;
+      for (const o of snakes) {
+        if (o === s || !o.alive) continue;
+        if (Math.abs(wd(o.x, s.x)) > 260 || Math.abs(wd(o.y, s.y)) > 260) continue;
+        const segs = o._segs || [];
+        // contact when the drawn head circle overlaps the drawn body circle
+        const kr = s.headR + o.bodyR, kill = kr * kr;
+        for (let i = 1; i < segs.length; i++) {
+          const dx = wd(segs[i].x, s.x), dy = wd(segs[i].y, s.y);
+          if (dx * dx + dy * dy < kill) {
+            // the SMALLER snake loses; a tie goes against the one that rammed
+            killSnake(s.segCount > o.segCount ? o : s);
+            break;
+          }
+        }
+        if (!s.alive) break;
+      }
+    }
+  }
+
+  function simulate(dt) {
+    for (const s of snakes) {
+      if (!s.alive) { s.respawn -= dt; continue; }
+      if (s.isPlayer) {
+        const ka = keyAngle(); const pa = pointerAngle();
+        if (ka !== null) s.targetAngle = ka; else if (pa !== null) s.targetAngle = pa;
+      } else {
+        aiThink(s, dt);
+      }
+      advance(s, dt);
+    }
+    // sample bodies once per frame (used by collision, AI, drawing)
+    for (const s of snakes) if (s.alive) s._segs = segmentPositions(s, s.segCount + 1);
+    for (const s of snakes) if (s.alive) eatFood(s);
+    collisions();
+    // respawn dead enemies, keep food topped up
+    for (let i = snakes.length - 1; i >= 0; i--) {
+      const s = snakes[i];
+      if (!s.alive && !s.isPlayer && s.respawn <= 0) snakes.splice(i, 1);
+    }
+    topUpEnemies();
+    // trim from the front (oldest ambient) so fresh death-drop food survives
+    if (foods.length > cfg.food) foods.splice(0, foods.length - cfg.food);
+    while (foods.length < cfg.food) spawnFoodAt(rnd(0, WORLD), rnd(0, WORLD));
+
+    // camera eases toward the player; zoom out slightly as it grows
+    camX = player.x; camY = player.y;
+    const targetZoom = Math.min(W, H) / (VIEW + Math.min(player.segCount, 120) * 2.2);
+    zoom += (targetZoom - zoom) * Math.min(1, dt * 3);
+  }
+
+  // ---- drawing -----------------------------------------------------
+  function toScreen(x, y) { return [W / 2 + wd(x, camX) * zoom, H / 2 + wd(y, camY) * zoom]; }
+
+  function draw() {
+    ctx.fillStyle = '#3f6a33'; ctx.fillRect(0, 0, W, H);
+    // faint grid for a sense of motion
+    ctx.strokeStyle = 'rgba(255,255,255,.06)'; ctx.lineWidth = 1;
+    const gs = 100 * zoom;
+    const ox = ((-camX * zoom) % gs + gs) % gs, oy = ((-camY * zoom) % gs + gs) % gs;
+    ctx.beginPath();
+    for (let x = ox; x < W; x += gs) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+    for (let y = oy; y < H; y += gs) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+    ctx.stroke();
+
+    // food
+    const margin = 40;
+    for (const f of foods) {
+      const sx = W / 2 + wd(f.x, camX) * zoom, sy = H / 2 + wd(f.y, camY) * zoom;
+      if (sx < -margin || sy < -margin || sx > W + margin || sy > H + margin) continue;
+      ctx.fillStyle = f.c;
+      ctx.beginPath(); ctx.arc(sx, sy, f.r * zoom, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.5)';
+      ctx.beginPath(); ctx.arc(sx - f.r * zoom * 0.3, sy - f.r * zoom * 0.3, f.r * zoom * 0.3, 0, 7); ctx.fill();
+    }
+
+    // snakes (enemies first, player on top)
+    const order = snakes.filter((s) => s.alive && !s.isPlayer).concat(player.alive ? [player] : []);
+    for (const s of order) drawSnake(s);
+  }
+
+  function drawSnake(s) {
+    const segs = s._segs || [];
+    if (!segs.length) return;
+    const br = s.bodyR;
+    // body, tail -> head so the head overlaps
+    for (let i = segs.length - 1; i >= 1; i--) {
+      const [sx, sy] = toScreen(segs[i].x, segs[i].y);
+      if (sx < -30 || sy < -30 || sx > W + 30 || sy > H + 30) continue;
+      ctx.fillStyle = s.color;
+      ctx.beginPath(); ctx.arc(sx, sy, br * zoom, 0, 7); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,.30)';
+      ctx.beginPath(); ctx.arc(sx, sy, br * zoom * 0.42, 0, 7); ctx.fill();
+    }
+    // head with a cute face
+    const [hx, hy] = toScreen(segs[0].x, segs[0].y);
+    const hr = s.headR * zoom;
+    ctx.fillStyle = s.color;
+    ctx.beginPath(); ctx.arc(hx, hy, hr, 0, 7); ctx.fill();
+    const a = s.angle, px = Math.cos(a), py = Math.sin(a), qx = -py, qy = px;
+    const eyeR = hr * 0.42, pupR = hr * 0.2, eo = hr * 0.5, ef = hr * 0.32;
+    for (const sgn of [-1, 1]) {
+      const ex = hx + px * ef + qx * eo * sgn, ey = hy + py * ef + qy * eo * sgn;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(ex, ey, eyeR, 0, 7); ctx.fill();
+      ctx.fillStyle = '#183a18';
+      ctx.beginPath(); ctx.arc(ex + px * eyeR * 0.35, ey + py * eyeR * 0.35, pupR, 0, 7); ctx.fill();
+    }
+    // tongue
+    ctx.strokeStyle = '#e23b5a'; ctx.lineWidth = Math.max(1.5, hr * 0.16);
+    ctx.beginPath();
+    ctx.moveTo(hx + px * hr * 0.7, hy + py * hr * 0.7);
+    ctx.lineTo(hx + px * hr * 1.4, hy + py * hr * 1.4);
+    ctx.stroke();
+    // length number floating above the head, so you can size up rivals
+    const fs = Math.max(12, hr * 1.05);
+    ctx.font = '900 ' + fs.toFixed(0) + 'px system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = Math.max(2, fs * 0.16); ctx.strokeStyle = 'rgba(20,45,20,.9)';
+    ctx.lineJoin = 'round';
+    const ny = hy - hr - fs * 0.7;
+    ctx.strokeText(s.segCount, hx, ny);
+    ctx.fillStyle = s.isPlayer ? '#fff' : '#fdfdfd';
+    ctx.fillText(s.segCount, hx, ny);
+  }
+
+  // ---- loop --------------------------------------------------------
+  function frame(ts) {
+    if (state !== 'play') return;
+    if (!last) last = ts;
+    let dt = (ts - last) / 1000; last = ts;
+    if (dt > 0.05) dt = 0.05;
+    simulate(dt);
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  // ---- state -------------------------------------------------------
+  function start() {
+    initAudio();
+    reset();
+    steerAngle = null; touchOrigin = null;
+    state = 'play'; last = 0;
+    document.getElementById('title').classList.add('hidden');
+    document.getElementById('over').classList.add('hidden');
+    boostBtn.classList.remove('hidden');
+    requestAnimationFrame(frame);
+  }
+  function gameOver() {
+    state = 'over';
+    if (player.segCount > best) { best = player.segCount; localStorage.setItem(BEST_KEY, best); document.getElementById('best').textContent = 'さいこう: ' + best; }
+    document.getElementById('over-msg').textContent = 'ながさ: ' + player.segCount;
+    document.getElementById('over').classList.remove('hidden');
+    boostBtn.classList.add('hidden');
+    sfxOver();
+  }
+  document.getElementById('btn-start').addEventListener('click', start);
+  document.getElementById('btn-retry').addEventListener('click', start);
+
+  // ---- difficulty panel -------------------------------------------
+  const CFG_SPEC = [
+    { key: 'enemies', label: 'てきの数', min: 2, max: 14, step: 1 },
+    { key: 'bosses', label: 'ヌシの数', min: 0, max: 5, step: 1 },
+    { key: 'food', label: 'えさの量', min: 30, max: 220, step: 5 },
+    { key: 'growth', label: 'のびる はやさ', min: 0.15, max: 1, step: 0.01, fmt: (v) => v.toFixed(2) },
+    { key: 'rival', label: 'てきの つよさ', min: 0.5, max: 2, step: 0.05, fmt: (v) => v.toFixed(2) + '×' },
+  ];
+  const cfgPanel = document.getElementById('cfg');
+  const cfgRows = document.getElementById('cfg-rows');
+  const cfgInputs = {};
+  CFG_SPEC.forEach((spec) => {
+    const row = document.createElement('div'); row.className = 'row';
+    const lab = document.createElement('div'); lab.className = 'lab';
+    const nm = document.createElement('span'); nm.textContent = spec.label;
+    const vv = document.createElement('span'); vv.className = 'val';
+    lab.append(nm, vv);
+    const inp = document.createElement('input');
+    inp.type = 'range'; inp.min = spec.min; inp.max = spec.max; inp.step = spec.step;
+    const fmt = spec.fmt || ((v) => String(v));
+    inp.addEventListener('input', () => {
+      cfg[spec.key] = spec.step < 1 ? +inp.value : (+inp.value | 0);
+      vv.textContent = fmt(+cfg[spec.key]); markPreset(); saveCfg();
+      if (state === 'play') topUpEnemies();
+    });
+    row.append(lab, inp); cfgRows.appendChild(row);
+    cfgInputs[spec.key] = { inp, set: () => { inp.value = cfg[spec.key]; vv.textContent = fmt(+cfg[spec.key]); } };
+  });
+  function refreshCfgUI() { CFG_SPEC.forEach((s) => cfgInputs[s.key].set()); markPreset(); }
+  function markPreset() {
+    cfgPanel.querySelectorAll('.presets button').forEach((b) => {
+      const p = PRESETS[b.dataset.preset];
+      b.classList.toggle('on', Object.keys(p).every((k) => Math.abs(cfg[k] - p[k]) < 1e-6));
+    });
+  }
+  cfgPanel.querySelectorAll('.presets button').forEach((b) => {
+    b.addEventListener('click', () => { Object.assign(cfg, PRESETS[b.dataset.preset]); saveCfg(); refreshCfgUI(); if (state === 'play') topUpEnemies(); });
+  });
+  const toggleCfg = () => { refreshCfgUI(); cfgPanel.classList.toggle('hidden'); };
+  document.getElementById('btn-cfg').addEventListener('click', toggleCfg);
+  document.getElementById('btn-cfg-title').addEventListener('click', toggleCfg);
+  document.getElementById('cfg-close').addEventListener('click', () => cfgPanel.classList.add('hidden'));
+  document.getElementById('cfg-restart').addEventListener('click', () => { cfgPanel.classList.add('hidden'); start(); });
+
+  // read-only hook for automated testing
+  window.__snake = {
+    get state() { return state; },
+    get len() { return player ? player.segCount : 0; },
+    get foods() { return foods.length; },
+    get deathFood() { return foods.filter((f) => (f.val || 1) > 1).map((f) => ({ x: f.x, y: f.y })); },
+    get enemies() { return snakes.filter((s) => !s.isPlayer && s.alive).length; },
+    get enemyLens() { return snakes.filter((s) => !s.isPlayer && s.alive).map((s) => s.segCount).sort((a, b) => b - a); },
+    get cfg() { return Object.assign({}, cfg); },
+    setCfg(k, v) { cfg[k] = v; saveCfg(); if (state === 'play') topUpEnemies(); },
+    get head() { return player ? { x: player.x, y: player.y } : null; },
+    get angle() { return player ? player.angle : 0; },
+    get headR() { return player ? player.headR : 0; },
+    setLen(n) { if (player) { player.segCount = n; updateScore(); } },
+    steer(a) { if (player) { player.targetAngle = a; } },
+    setBoost(b) { if (player) player.boosting = b; },
+    // test helper: aim at the nearest enemy that is SMALLER (prey) or, if
+    // prey=false, the nearest of any size. Returns {angle,len} or null.
+    aimNearest(preyOnly) {
+      if (!player) return null;
+      let ba = null, blen = 0, bd = Infinity;
+      for (const o of snakes) {
+        if (o === player || !o.alive) continue;
+        if (preyOnly && o.segCount >= player.segCount) continue;
+        for (const p of (o._segs || [])) {
+          const dx = wd(p.x, player.x), dy = wd(p.y, player.y), d = dx * dx + dy * dy;
+          if (d < bd) { bd = d; ba = Math.atan2(dy, dx); blen = o.segCount; }
+        }
+      }
+      return ba === null ? null : { angle: ba, len: blen };
+    },
+    aimNearestBody() { const r = this.aimNearest(false); return r ? r.angle : null; },
+  };
+
+  // ---- boot --------------------------------------------------------
+  fit();
+  state = 'title';
+})();
+</script>
+</body>
+</html>

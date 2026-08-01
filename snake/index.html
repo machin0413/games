@@ -95,7 +95,7 @@
 
   <div id="title" class="overlay">
     <h1>ヘビさん<br>スネーク</h1>
-    <div class="msg">ゆびで むきをかえて<br>フルーツを たべよう！<br>🚀ボタンで ダッシュ<br>じぶんより 小さいヘビは たおせる！</div>
+    <div class="msg">ゆびで むきをかえて<br>フルーツを たべよう！<br>🚀ボタンで ダッシュ<br>あたまと ○のくびが よわい！<br>しっぽは さわっても へいき。<br>じぶんより 小さいヘビの くびを ねらえ！</div>
     <button id="btn-start" class="bigbtn">スタート！</button>
     <button id="btn-cfg-title" class="bigbtn" style="background:#6fce4e;color:#fff;box-shadow:0 6px 0 #3f8f3a;font-size:20px;padding:11px 26px;">⚙️ なんいど</button>
   </div>
@@ -127,10 +127,13 @@
   //  food    : fruit orbs kept in the world
   //  growth  : segments gained per fruit (lower = grow slower)
   //  rival   : enemy size relative to you (higher = tougher)
+  //  vital   : how many segments behind the head are lethal ("the neck").
+  //            everything further back is tail, and touching tail does nothing,
+  //            so a long snake is not an easier target -- just a longer one.
   const PRESETS = {
-    easy:   { enemies: 4, bosses: 1, food: 60,  growth: 0.5,  rival: 0.7 },
-    normal: { enemies: 6, bosses: 2, food: 85,  growth: 0.33, rival: 1.0 },
-    hard:   { enemies: 10, bosses: 3, food: 130, growth: 0.28, rival: 1.5 },
+    easy:   { enemies: 4, bosses: 1, food: 60,  growth: 0.5,  rival: 0.7, vital: 4 },
+    normal: { enemies: 6, bosses: 2, food: 85,  growth: 0.33, rival: 1.0, vital: 5 },
+    hard:   { enemies: 10, bosses: 3, food: 130, growth: 0.28, rival: 1.5, vital: 6 },
   };
   const CFG_KEY = 'hebi-cfg';
   let cfg = Object.assign({}, PRESETS.normal, safeParse(localStorage.getItem(CFG_KEY)));
@@ -204,7 +207,7 @@
       x, y, angle, targetAngle: angle, color, isPlayer,
       headR: hr, bodyR: hr - 2,
       segCount: segs, alive: true, boosting: false, boostDrain: 0,
-      path: [], pathAcc: 0, aiTimer: rnd(0.5, 2), respawn: 0,
+      path: [], pathUsed: 0, aiTimer: rnd(0.5, 2), respawn: 0, veer: 0,
     };
     // seed a straight tail so the body has points to sample immediately
     for (let i = 0; i < segs * SEG_SP + 40; i++) {
@@ -282,9 +285,9 @@
     const pts = [];
     const path = s.path;
     if (path.length < 2) return pts;
-    let need = SEG_SP, acc = 0;
+    let need = SEG_SP, acc = 0, i = 1;
     pts.push({ x: path[0].x, y: path[0].y });
-    for (let i = 1; i < path.length && pts.length < maxCount; i++) {
+    for (; i < path.length && pts.length < maxCount; i++) {
       const dx = wd(path[i].x, path[i - 1].x), dy = wd(path[i].y, path[i - 1].y);
       const d = Math.hypot(dx, dy);
       acc += d;
@@ -295,6 +298,7 @@
         need += SEG_SP;
       }
     }
+    s.pathUsed = i; // how far down the path the body actually reached
     return pts;
   }
 
@@ -362,6 +366,9 @@
 
   function aiThink(s, dt) {
     s.aiTimer -= dt;
+    // just bounced off the player's body: hold the veer for a moment so the
+    // food/hunt seeking below doesn't immediately steer back into it
+    if (s.veer > 0) { s.veer -= dt; return; }
     // seek nearest food within a range
     let bx = null, by = null, bd = 220 * 220;
     for (let i = 0; i < foods.length; i += 3) { // sample for speed
@@ -385,14 +392,16 @@
       s.targetAngle = s.angle + rnd(-1.2, 1.2);
       s.aiTimer = rnd(0.6, 2.2);
     }
-    // avoid running into snakes we can't beat; skip while chasing prey
+    // avoid running into snakes we can't beat; skip while chasing prey.
+    // only heads and necks are worth dodging now -- tails cannot hurt anyone.
     const ax = s.x + Math.cos(s.angle) * 34, ay = s.y + Math.sin(s.angle) * 34;
     if (hx === null) {
       for (const o of snakes) {
         if (o === s || !o.alive) continue;
         if (Math.abs(wd(o.x, s.x)) > 120 || Math.abs(wd(o.y, s.y)) > 120) continue;
-        for (const p of o._segs || []) {
-          if (Math.abs(wd(p.x, ax)) < 22 && Math.abs(wd(p.y, ay)) < 22) {
+        const segs = o._segs || [], neck = Math.min(segs.length, cfg.vital + 1);
+        for (let i = 0; i < neck; i++) {
+          if (Math.abs(wd(segs[i].x, ax)) < 22 && Math.abs(wd(segs[i].y, ay)) < 22) {
             s.targetAngle = s.angle + 1.4; // veer away
             break;
           }
@@ -421,8 +430,9 @@
     s.x = wrap(s.x + Math.cos(s.angle) * sp * dt);
     s.y = wrap(s.y + Math.sin(s.angle) * sp * dt);
     s.path.unshift({ x: s.x, y: s.y });
-    const keep = Math.ceil((s.segCount + 3) * SEG_SP / (sp * dt || 3)) + 20;
-    if (s.path.length > keep + 60) s.path.length = keep + 60;
+    // the path is trimmed after sampling, in simulate(), where we know how much
+    // of it the body actually used. Guessing here from sp*dt would throw away
+    // path we still need whenever a frame runs long.
   }
 
   // grow by a fractional amount; segCount only ticks up on whole units, so
@@ -462,24 +472,55 @@
     else s.respawn = rnd(1.5, 3.5);
   }
 
+  // Contact rules — identical for every snake, player included, no exceptions:
+  //   a head touching another snake's HEAD or NECK (the first cfg.vital
+  //   segments) is a fight, and the SHORTER snake loses.
+  //   Everything behind the neck is tail: harmless to touch. So growing long
+  //   never widens the part of you that can be killed -- it only adds tail.
   function collisions() {
     for (const s of snakes) {
       if (!s.alive) continue;
       for (const o of snakes) {
         if (o === s || !o.alive) continue;
         if (Math.abs(wd(o.x, s.x)) > 260 || Math.abs(wd(o.y, s.y)) > 260) continue;
+
+        // head-on: settled purely by size, no matter who charged
+        const hr = s.headR + o.headR;
+        const hdx = wd(o.x, s.x), hdy = wd(o.y, s.y);
+        if (hdx * hdx + hdy * hdy < hr * hr) {
+          killSnake(s.segCount > o.segCount ? o : s);
+          if (!s.alive) break;
+          continue;
+        }
+
         const segs = o._segs || [];
         // contact when the drawn head circle overlaps the drawn body circle
         const kr = s.headR + o.bodyR, kill = kr * kr;
-        for (let i = 1; i < segs.length; i++) {
+        const neck = Math.min(segs.length, cfg.vital + 1);
+        let fought = false;
+        for (let i = 1; i < neck; i++) {
           const dx = wd(segs[i].x, s.x), dy = wd(segs[i].y, s.y);
           if (dx * dx + dy * dy < kill) {
             // the SMALLER snake loses; a tie goes against the one that rammed
             killSnake(s.segCount > o.segCount ? o : s);
+            fought = true;
             break;
           }
         }
-        if (!s.alive) break;
+        if (fought) { if (!s.alive) break; continue; }
+        // tail contact is survivable, but solid enough to knock a snake off
+        // course. AI only -- steering the player here would fight their finger.
+        // Sampled every few segments: this is cosmetic, it needn't be exact.
+        if (s.isPlayer) continue;
+        for (let i = neck; i < segs.length; i += 4) {
+          const dx = wd(segs[i].x, s.x), dy = wd(segs[i].y, s.y);
+          if (dx * dx + dy * dy < kill) {
+            const cross = Math.cos(s.angle) * dy - Math.sin(s.angle) * dx;
+            s.targetAngle = s.angle + (cross > 0 ? -1.6 : 1.6);
+            s.veer = 0.35;
+            break;
+          }
+        }
       }
     }
   }
@@ -496,7 +537,15 @@
       advance(s, dt);
     }
     // sample bodies once per frame (used by collision, AI, drawing)
-    for (const s of snakes) if (s.alive) s._segs = segmentPositions(s, s.segCount + 1);
+    for (const s of snakes) {
+      if (!s.alive) continue;
+      s._segs = segmentPositions(s, s.segCount + 1);
+      // only discard path the body has proven it doesn't reach. If the sample
+      // came up short the path is still too young to trim -- let it grow.
+      if (s._segs.length > s.segCount && s.path.length > s.pathUsed + 8) {
+        s.path.length = s.pathUsed + 8;
+      }
+    }
     for (const s of snakes) if (s.alive) eatFood(s);
     collisions();
     // respawn dead enemies, keep food topped up
@@ -549,6 +598,7 @@
     const segs = s._segs || [];
     if (!segs.length) return;
     const br = s.bodyR;
+    const neck = Math.min(segs.length, cfg.vital + 1);
     // body, tail -> head so the head overlaps
     for (let i = segs.length - 1; i >= 1; i--) {
       const [sx, sy] = toScreen(segs[i].x, segs[i].y);
@@ -557,6 +607,12 @@
       ctx.beginPath(); ctx.arc(sx, sy, br * zoom, 0, 7); ctx.fill();
       ctx.fillStyle = 'rgba(255,255,255,.30)';
       ctx.beginPath(); ctx.arc(sx, sy, br * zoom * 0.42, 0, 7); ctx.fill();
+      // wash the neck pale: it is the only part of a snake that can be killed,
+      // so it has to read at a glance on yourself and on everyone else
+      if (i < neck) {
+        ctx.fillStyle = 'rgba(255,255,255,.42)';
+        ctx.beginPath(); ctx.arc(sx, sy, br * zoom, 0, 7); ctx.fill();
+      }
     }
     // head with a cute face
     const [hx, hy] = toScreen(segs[0].x, segs[0].y);
@@ -630,6 +686,7 @@
     { key: 'food', label: 'えさの量', min: 30, max: 220, step: 5 },
     { key: 'growth', label: 'のびる はやさ', min: 0.15, max: 1, step: 0.01, fmt: (v) => v.toFixed(2) },
     { key: 'rival', label: 'てきの つよさ', min: 0.5, max: 2, step: 0.05, fmt: (v) => v.toFixed(2) + '×' },
+    { key: 'vital', label: 'きゅうしょの ながさ', min: 1, max: 12, step: 1 },
   ];
   const cfgPanel = document.getElementById('cfg');
   const cfgRows = document.getElementById('cfg-rows');
@@ -677,6 +734,9 @@
     get enemyLens() { return snakes.filter((s) => !s.isPlayer && s.alive).map((s) => s.segCount).sort((a, b) => b - a); },
     get cfg() { return Object.assign({}, cfg); },
     setCfg(k, v) { cfg[k] = v; saveCfg(); if (state === 'play') topUpEnemies(); },
+    // how much of the body actually got sampled this frame vs how much it owes
+    get segsDrawn() { return player && player._segs ? player._segs.length : 0; },
+    get pathLen() { return player ? player.path.length : 0; },
     get head() { return player ? { x: player.x, y: player.y } : null; },
     get angle() { return player ? player.angle : 0; },
     get headR() { return player ? player.headR : 0; },

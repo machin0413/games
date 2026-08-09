@@ -176,9 +176,14 @@
     hard:   { enemies: 10, bosses: 3, food: 130, growth: 0.28, rival: 1.5, vital: 6, agility: 0.85, boostCost: 1.5, slowGrow: 1.4, neckBite: 1 },
   };
   const CFG_KEY = 'hebi-cfg';
-  let cfg = Object.assign({}, PRESETS.normal, safeParse(localStorage.getItem(CFG_KEY)));
+  let cfg = Object.assign({}, PRESETS.normal, safeParse(lsGet(CFG_KEY)));
   function safeParse(s) { try { return s ? JSON.parse(s) : {}; } catch (e) { return {}; } }
-  function saveCfg() { try { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); } catch (e) {} }
+  // Touching localStorage throws outright in some embedded and private-mode
+  // contexts -- not just writing to it. The whole game is one IIFE, so a single
+  // unguarded read takes the entire page down to a blank screen.
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function saveCfg() { lsSet(CFG_KEY, JSON.stringify(cfg)); }
 
   const canvas = document.getElementById('c');
   const ctx = canvas.getContext('2d');
@@ -233,7 +238,7 @@
   // ---- state -------------------------------------------------------
   let snakes, foods, player, state, last, camX, camY;
   const BEST_KEY = 'hebisan-best';
-  let best = +(localStorage.getItem(BEST_KEY) || 0);
+  let best = +(lsGet(BEST_KEY) || 0);
   document.getElementById('best').textContent = 'さいこう: ' + best;
 
   // thickness grows with length but on a gentle, saturating curve, so it
@@ -811,7 +816,7 @@
   }
   function gameOver() {
     state = 'over';
-    if (player.segCount > best) { best = player.segCount; localStorage.setItem(BEST_KEY, best); document.getElementById('best').textContent = 'さいこう: ' + best; }
+    if (player.segCount > best) { best = player.segCount; lsSet(BEST_KEY, best); document.getElementById('best').textContent = 'さいこう: ' + best; }
     const r = playerRank();
     let msg = 'ながさ: ' + player.segCount + '（じゅんい ' + r.pos + '/' + r.of + '）';
     if (player.kills) {

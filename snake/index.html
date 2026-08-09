@@ -12,12 +12,16 @@
   #c { position: fixed; inset: 0; display: block; touch-action: none; }
 
   /* ---- HUD ---- */
-  #hud { position: fixed; top: 0; left: 0; right: 0; padding: 12px 16px;
-    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  #hud { position: fixed; top: 0; left: 0; right: 0; padding: 10px 12px;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
     pointer-events: none; }
-  #score { font-size: 30px; font-weight: 900; color: #fff;
+  #score { font-size: clamp(20px, 6.5vw, 30px); font-weight: 900; color: #fff; white-space: nowrap;
     text-shadow: 0 3px 0 #1f6b2a, 0 5px 6px rgba(0,0,0,.3); }
-  #best { font-size: 15px; font-weight: 800; color: #d7f7c8; text-shadow: 0 2px 3px rgba(0,0,0,.4); }
+  /* the two small readouts stack, or the buttons get pushed off a phone screen */
+  .hud-right { display: flex; align-items: center; gap: 8px; pointer-events: none; }
+  .hud-stats { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.3; }
+  #best { font-size: 14px; font-weight: 800; color: #d7f7c8; white-space: nowrap; text-shadow: 0 2px 3px rgba(0,0,0,.4); }
+  #rank { font-size: 14px; font-weight: 900; color: #ffe27a; white-space: nowrap; text-shadow: 0 2px 3px rgba(0,0,0,.4); }
   #btn-mute { pointer-events: auto; font-size: 22px; width: 46px; height: 46px; border: none;
     border-radius: 50%; background: rgba(255,255,255,.8); box-shadow: 0 4px 0 rgba(0,0,0,.15); }
 
@@ -56,8 +60,13 @@
   #cfg .row .lab { display: flex; justify-content: space-between; font-size: 14px; font-weight: 800; margin-bottom: 3px; }
   #cfg .row .val { color: #ffe27a; }
   #cfg input[type=range] { width: 100%; accent-color: #6fce4e; }
+  #cfg .toggle { width: 100%; border: none; border-radius: 12px; padding: 9px 0;
+    font-size: 15px; font-weight: 900; background: #2c5a2a; color: #bfe6ac; }
+  #cfg .toggle.on { background: #6fce4e; color: #123a12; }
   #cfg .note { font-size: 12px; color: #bfe6ac; margin: 6px 0 12px; line-height: 1.4; }
-  #cfg .acts { display: flex; gap: 8px; }
+  /* the panel scrolls now that it has ten rows -- keep the buttons reachable */
+  #cfg .acts { display: flex; gap: 8px; position: sticky; bottom: -16px;
+    background: rgba(18,42,18,.96); padding: 8px 0 16px; }
   #cfg .acts button { flex: 1; border: none; border-radius: 14px; padding: 12px 0;
     font-size: 17px; font-weight: 900; }
   #cfg-restart { background: #ff8a00; color: #fff; }
@@ -69,8 +78,11 @@
 
   <div id="hud">
     <div id="score">ながさ: 0</div>
-    <div style="display:flex; align-items:center; gap:10px; pointer-events:none;">
-      <div id="best">さいこう: 0</div>
+    <div class="hud-right">
+      <div class="hud-stats">
+        <div id="rank">じゅんい: -</div>
+        <div id="best">さいこう: 0</div>
+      </div>
       <button id="btn-cfg">⚙️</button>
       <button id="btn-mute">🔊</button>
     </div>
@@ -85,8 +97,8 @@
       <button data-preset="normal">ふつう</button>
       <button data-preset="hard">むずかしい</button>
     </div>
-    <div id="cfg-rows"></div>
     <div class="note">スライダーはすぐ反映されます。「もういちど」で最初からやり直します。</div>
+    <div id="cfg-rows"></div>
     <div class="acts">
       <button id="cfg-restart">さいしょから</button>
       <button id="cfg-close">とじる</button>
@@ -95,7 +107,7 @@
 
   <div id="title" class="overlay">
     <h1>ヘビさん<br>スネーク</h1>
-    <div class="msg">ゆびで むきをかえて<br>フルーツを たべよう！<br>🚀ボタンで ダッシュ<br>あたまと ○のくびが よわい！<br>しっぽは さわっても へいき。<br>じぶんより 小さいヘビの くびを ねらえ！</div>
+    <div class="msg">ゆびで むきをかえて<br>フルーツを たべよう！<br>🚀ボタンで ダッシュ（ながさが へるよ）<br>しろい「くび」を かまれたら まけ。<br>大きくても かまれたら おしまい！<br>あたま どうしは 大きいほうが かち。<br>しっぽは さわっても へいき。<br>ながいほど まがるのが おそくなるよ。</div>
     <button id="btn-start" class="bigbtn">スタート！</button>
     <button id="btn-cfg-title" class="bigbtn" style="background:#6fce4e;color:#fff;box-shadow:0 6px 0 #3f8f3a;font-size:20px;padding:11px 26px;">⚙️ なんいど</button>
   </div>
@@ -119,7 +131,29 @@
   const BOOST_SPEED = 235;
   const TURN_RATE = 6.2;       // radians / second the heading can swing
   const BIG_MIN = 55;          // a snake this long counts as "big"
+  const PAYOUT_CAP = 200;      // kill-drop orbs left lying around at once
+  const SPAWN_SHIELD = 2.5;    // seconds of truce after spawning. A fresh
+                               // 10-segment snake could be run down by a boss
+                               // before the player had touched the screen.
   const START_SEGS = 10;
+
+  // ---- size handicap ------------------------------------------------
+  // Length used to cost nothing: every snake ran at the same speed and turned
+  // just as tightly, so a giant could neither be caught nor catch anything and
+  // the late game went quiet. Now length trades power for agility -- a long
+  // snake wins any head-on but lumbers, and a short one can get behind it.
+  const SLOW_MAX = 0.38;       // top speed a very long snake gives up
+  const TURN_MAX = 0.62;       // turning a very long snake gives up
+  const SIZE_HALF = 90;        // length at which half the handicap has landed
+  const sizeF = (n) => n / (n + SIZE_HALF);
+  const speedMul = (n) => 1 - SLOW_MAX * cfg.agility * sizeF(n);
+  const turnRateFor = (n) => TURN_RATE * (1 - TURN_MAX * cfg.agility * sizeF(n));
+  // segments burned per second of boost, proportional to length: a dash should
+  // cost a giant real size, not a rounding error.
+  const boostBurn = (n) => (1.6 + 0.055 * n) * cfg.boostCost;
+  // fruit is worth less the longer you already are, so the last hundred
+  // segments are earned rather than collected.
+  const growthFor = (n) => cfg.growth / (1 + cfg.slowGrow * n / 70);
 
   // ---- tunable difficulty (live-editable via the ⚙️ panel) ---------
   //  enemies : how many rival snakes roam
@@ -130,10 +164,16 @@
   //  vital   : how many segments behind the head are lethal ("the neck").
   //            everything further back is tail, and touching tail does nothing,
   //            so a long snake is not an easier target -- just a longer one.
+  //  agility : how much of the speed/turning handicap above actually applies
+  //  boostCost: multiplier on the length burned per second of boost
+  //  slowGrow: how fast fruit loses value as you lengthen (0 = never)
+  //  neckBite: 1 = a head striking a neck kills the bitten snake whatever the
+  //            sizes are, so being the longest is an advantage, not a shield.
+  //            0 = the old rule, where every contact is settled by length.
   const PRESETS = {
-    easy:   { enemies: 4, bosses: 1, food: 60,  growth: 0.5,  rival: 0.7, vital: 4 },
-    normal: { enemies: 6, bosses: 2, food: 85,  growth: 0.33, rival: 1.0, vital: 5 },
-    hard:   { enemies: 10, bosses: 3, food: 130, growth: 0.28, rival: 1.5, vital: 6 },
+    easy:   { enemies: 4, bosses: 1, food: 60,  growth: 0.5,  rival: 0.7, vital: 4, agility: 0.35, boostCost: 0.6, slowGrow: 0.6, neckBite: 0 },
+    normal: { enemies: 6, bosses: 2, food: 85,  growth: 0.33, rival: 1.0, vital: 5, agility: 0.6,  boostCost: 1.0, slowGrow: 1.0, neckBite: 1 },
+    hard:   { enemies: 10, bosses: 3, food: 130, growth: 0.28, rival: 1.5, vital: 6, agility: 0.85, boostCost: 1.5, slowGrow: 1.4, neckBite: 1 },
   };
   const CFG_KEY = 'hebi-cfg';
   let cfg = Object.assign({}, PRESETS.normal, safeParse(localStorage.getItem(CFG_KEY)));
@@ -206,7 +246,8 @@
     const s = {
       x, y, angle, targetAngle: angle, color, isPlayer,
       headR: hr, bodyR: hr - 2,
-      segCount: segs, alive: true, boosting: false, boostDrain: 0,
+      segCount: segs, alive: true, boosting: false, boostDrain: 0, shield: 0,
+      kills: 0, bestKill: 0,
       path: [], pathUsed: 0, aiTimer: rnd(0.5, 2), respawn: 0, veer: 0,
     };
     // seed a straight tail so the body has points to sample immediately
@@ -229,10 +270,11 @@
     for (let i = 0; i < cfg.food; i++) spawnFoodAt(rnd(0, WORLD), rnd(0, WORLD));
     snakes = [];
     player = makeSnake(WORLD / 2, WORLD / 2, START_SEGS, '#2fb84e', true);
+    player.shield = SPAWN_SHIELD;
     snakes.push(player);
     topUpEnemies();
     camX = player.x; camY = player.y;
-    updateScore();
+    updateScore(); updateRank();
   }
 
   const aliveEnemies = () => snakes.filter((s) => !s.isPlayer && s.alive);
@@ -252,7 +294,10 @@
   function addEnemy(wantBig) {
     let x, y, tries = 0;
     do { x = rnd(0, WORLD); y = rnd(0, WORLD); tries++; } while (!farFromPlayer(x, y) && tries < 30);
-    const len = wantBig ? Math.round(rnd(70, 150) * cfg.rival) : spawnLen();
+    // a boss is measured against the player, not against a fixed number: the
+    // old absolute 70-150 quietly stopped being a boss the moment you passed it
+    const bossLen = Math.max(rnd(70, 150), (player ? player.segCount : 20) * rnd(1.4, 2.2));
+    const len = wantBig ? Math.round(bossLen * cfg.rival) : spawnLen();
     snakes.push(makeSnake(x, y, len, ENEMY[(Math.random() * ENEMY.length) | 0], false));
   }
 
@@ -276,8 +321,47 @@
     }
   }
 
+  // Rivals are sized against the player at the moment they spawn, and snakes
+  // that dodge each other well can live a long time -- so a player who grows
+  // quickly ends up ruling a lobby scaled to who they used to be, with nothing
+  // left on the map worth avoiding. Every few seconds, retire one outclassed
+  // rival far off screen and bring in a fresh one at today's scale.
+  let rivalTimer = 0;
+  function refreshRivals(dt) {
+    rivalTimer -= dt;
+    if (rivalTimer > 0) return;
+    rivalTimer = 4;
+    const es = aliveEnemies();
+    if (!es.length) return;
+    let biggest = 0;
+    for (const s of es) if (s.segCount > biggest) biggest = s.segCount;
+    if (biggest >= player.segCount * 0.9) return;      // someone still matches you
+    const weak = es
+      .filter((s) => s.segCount < player.segCount * 0.5)
+      .map((s) => ({ s, d: Math.hypot(wd(s.x, player.x), wd(s.y, player.y)) }))
+      .sort((a, b) => b.d - a.d)[0];
+    if (!weak || weak.d < 420) return;                 // never pop one in plain sight
+    const idx = snakes.indexOf(weak.s);
+    if (idx >= 0) snakes.splice(idx, 1);
+    addEnemy(true);
+  }
+
   function updateScore() {
     document.getElementById('score').textContent = 'ながさ: ' + (player ? player.segCount : 0);
+  }
+
+  // Standing among the snakes actually on the map. Once you can be bitten,
+  // being first is a target rather than a finish line, so it is worth showing.
+  let rankTimer = 0;
+  function playerRank() {
+    // counted without the player, then added back, so the standing still reads
+    // correctly on the game-over screen where the player is already dead
+    const rivals = snakes.filter((s) => s.alive && !s.isPlayer);
+    return { pos: 1 + rivals.filter((s) => s.segCount > player.segCount).length, of: rivals.length + 1 };
+  }
+  function updateRank() {
+    const r = playerRank();
+    document.getElementById('rank').textContent = 'じゅんい: ' + r.pos + '/' + r.of;
   }
 
   // ---- body sampling: positions of the segments along the path -----
@@ -360,7 +444,7 @@
     let d = target - s.angle;
     while (d > Math.PI) d -= Math.PI * 2;
     while (d < -Math.PI) d += Math.PI * 2;
-    const max = TURN_RATE * dt;
+    const max = turnRateFor(s.segCount) * dt;
     s.angle += Math.max(-max, Math.min(max, d));
   }
 
@@ -369,20 +453,51 @@
     // just bounced off the player's body: hold the veer for a moment so the
     // food/hunt seeking below doesn't immediately steer back into it
     if (s.veer > 0) { s.veer -= dt; return; }
-    // seek nearest food within a range
+    // 1. flinch first. A head that is close and aimed at us is the only thing
+    //    that can kill us, so break away from it before doing anything else.
+    //    Once necks are bitable that is true no matter who is longer, which is
+    //    what stops the AI feeding itself to whatever snake happens to be big.
+    let tx = null, ty = null, td = 160 * 160;
+    for (const o of snakes) {
+      if (o === s || !o.alive || o.shield > 0) continue;
+      const dx = wd(o.x, s.x), dy = wd(o.y, s.y), d2 = dx * dx + dy * dy;
+      if (d2 > td) continue;
+      if (!cfg.neckBite && o.segCount <= s.segCount) continue; // length rules: only bigger snakes bite
+      const d = Math.sqrt(d2) || 1;
+      if ((Math.cos(o.angle) * -dx + Math.sin(o.angle) * -dy) / d < 0.55) continue; // not coming for us
+      td = d2; tx = dx; ty = dy;
+    }
+    if (tx !== null) {
+      // peel off sideways rather than straight back, so we keep our speed up
+      const cross = Math.cos(s.angle) * ty - Math.sin(s.angle) * tx;
+      s.targetAngle = Math.atan2(-ty, -tx) + (cross > 0 ? -0.6 : 0.6);
+      s.boosting = td < 90 * 90 && s.segCount > 20;
+      return;
+    }
+
+    // 2. hunt. Chasing a smaller snake's head still works, and a neck exposed
+    //    by a snake looking the other way is fair game whatever its size.
+    let hx = null, hy = null, hd = 260 * 260;
+    for (const o of snakes) {
+      if (o === s || !o.alive || o.shield > 0) continue;
+      const dx = wd(o.x, s.x), dy = wd(o.y, s.y), d2 = dx * dx + dy * dy;
+      if (d2 >= hd) continue;
+      const stronger = s.segCount > o.segCount * 1.15;
+      const segs = o._segs || [];
+      const d = Math.sqrt(d2) || 1;
+      const facingUs = (Math.cos(o.angle) * -dx + Math.sin(o.angle) * -dy) / d;
+      const ambush = cfg.neckBite && facingUs < 0.2 && segs.length > cfg.vital;
+      if (!stronger && !ambush) continue;
+      const aim = ambush ? segs[Math.min(segs.length - 1, cfg.vital)] : o;
+      hd = d2; hx = wd(aim.x, s.x); hy = wd(aim.y, s.y);
+    }
+
+    // 3. otherwise eat, or wander
     let bx = null, by = null, bd = 220 * 220;
     for (let i = 0; i < foods.length; i += 3) { // sample for speed
       const f = foods[i];
       const dx = wd(f.x, s.x), dy = wd(f.y, s.y), d2 = dx * dx + dy * dy;
       if (d2 < bd) { bd = d2; bx = dx; by = dy; }
-    }
-    // hunt: if clearly bigger than a nearby snake, chase its head to attack
-    let hx = null, hy = null, hd = 240 * 240;
-    for (const o of snakes) {
-      if (o === s || !o.alive) continue;
-      if (s.segCount <= o.segCount * 1.15) continue; // only chase smaller prey
-      const dx = wd(o.x, s.x), dy = wd(o.y, s.y), d2 = dx * dx + dy * dy;
-      if (d2 < hd) { hd = d2; hx = dx; hy = dy; }
     }
     if (hx !== null) {
       s.targetAngle = Math.atan2(hy, hx);
@@ -392,23 +507,8 @@
       s.targetAngle = s.angle + rnd(-1.2, 1.2);
       s.aiTimer = rnd(0.6, 2.2);
     }
-    // avoid running into snakes we can't beat; skip while chasing prey.
-    // only heads and necks are worth dodging now -- tails cannot hurt anyone.
-    const ax = s.x + Math.cos(s.angle) * 34, ay = s.y + Math.sin(s.angle) * 34;
-    if (hx === null) {
-      for (const o of snakes) {
-        if (o === s || !o.alive) continue;
-        if (Math.abs(wd(o.x, s.x)) > 120 || Math.abs(wd(o.y, s.y)) > 120) continue;
-        const segs = o._segs || [], neck = Math.min(segs.length, cfg.vital + 1);
-        for (let i = 0; i < neck; i++) {
-          if (Math.abs(wd(segs[i].x, ax)) < 22 && Math.abs(wd(segs[i].y, ay)) < 22) {
-            s.targetAngle = s.angle + 1.4; // veer away
-            break;
-          }
-        }
-      }
-    }
-    // hunters boost to close the gap; others rarely
+    // hunters boost to close the gap; others rarely. Boost now costs length in
+    // proportion to size, so the long ones spend it sparingly.
     s.boosting = (hx !== null ? Math.random() < 0.03 : Math.random() < 0.004) && s.segCount > 12;
   }
 
@@ -419,14 +519,18 @@
     let sp = BASE_SPEED;
     if (s.boosting && s.segCount > 6) {
       sp = BOOST_SPEED;
-      s.boostDrain += dt;
-      if (s.boostDrain >= 0.14) { // shed length while boosting, dropping food
-        s.boostDrain = 0; s.segCount--;
+      // burn length at a rate that scales with length, and pack the whole
+      // frame's loss into one fat orb so a long boost does not spam the world
+      s.boostDrain += boostBurn(s.segCount) * dt;
+      let lost = 0;
+      while (s.boostDrain >= 1 && s.segCount > 6) { s.boostDrain -= 1; s.segCount--; lost++; }
+      if (lost) {
         const tail = (s._segs && s._segs[s._segs.length - 1]) || s;
-        spawnFoodAt(tail.x, tail.y, s.color, 6);
+        spawnFoodAt(tail.x, tail.y, s.color, 5 + Math.min(5, lost), lost);
         if (s.isPlayer) updateScore();
       }
     } else { s.boosting = s.boosting && s.segCount > 6; }
+    sp *= speedMul(s.segCount);
     s.x = wrap(s.x + Math.cos(s.angle) * sp * dt);
     s.y = wrap(s.y + Math.sin(s.angle) * sp * dt);
     s.path.unshift({ x: s.x, y: s.y });
@@ -451,44 +555,56 @@
       const dx = wd(f.x, s.x), dy = wd(f.y, s.y);
       if (dx * dx + dy * dy < rr) {
         foods.splice(i, 1);
-        grow(s, (f.val || 1) * cfg.growth);
+        grow(s, (f.val || 1) * growthFor(s.segCount));
         if (s.isPlayer) sfxEat();
       }
     }
   }
 
-  function killSnake(s) {
+  function killSnake(s, killer) {
     s.alive = false;
+    if (killer && killer.isPlayer) {
+      killer.kills++;
+      if (s.segCount > killer.bestKill) killer.bestKill = s.segCount;
+    }
     // scatter its body into a wide, high-value blob (not a thin line), so
     // one sweep through the area picks up lots without retracing a path
     const segs = s._segs || [];
-    const count = Math.max(4, Math.round(s.segCount * 0.7));
+    // the payout is worth 2 per segment, but it is packed into a capped number
+    // of fatter orbs: a 400-long boss used to burst into 280 specks, most of
+    // which the food cap swept away before anyone could reach them.
+    const count = Math.min(46, Math.max(4, Math.round(s.segCount * 0.7)));
+    const val = Math.max(2, (s.segCount * 0.7 * 2) / count);
     for (let i = 0; i < count && segs.length; i++) {
       const p = segs[(Math.random() * segs.length) | 0];
       const a = rnd(0, Math.PI * 2), rad = rnd(0, 46);
-      spawnFoodAt(p.x + Math.cos(a) * rad, p.y + Math.sin(a) * rad, s.color, rnd(7, 10), 2);
+      spawnFoodAt(p.x + Math.cos(a) * rad, p.y + Math.sin(a) * rad, s.color, rnd(7, 10) + Math.min(5, val - 2), val);
     }
     if (s.isPlayer) gameOver();
     else s.respawn = rnd(1.5, 3.5);
   }
 
   // Contact rules — identical for every snake, player included, no exceptions:
-  //   a head touching another snake's HEAD or NECK (the first cfg.vital
-  //   segments) is a fight, and the SHORTER snake loses.
-  //   Everything behind the neck is tail: harmless to touch. So growing long
-  //   never widens the part of you that can be killed -- it only adds tail.
+  //   HEAD vs HEAD is a charge, and the LONGER snake wins. Length still counts
+  //   for something, and it is the one fight you can read in advance.
+  //   HEAD vs NECK (the first cfg.vital segments) is an ambush: whoever gets
+  //   bitten dies, however long they are. Without this the leader is literally
+  //   unkillable -- nothing on the map can beat it and the game goes flat.
+  //   With cfg.neckBite off the old length-decides-everything rule returns.
+  //   Everything behind the neck is tail: harmless to touch.
   function collisions() {
     for (const s of snakes) {
-      if (!s.alive) continue;
+      if (!s.alive || s.shield > 0) continue;
       for (const o of snakes) {
-        if (o === s || !o.alive) continue;
+        if (o === s || !o.alive || o.shield > 0) continue; // a shield is a truce, both ways
         if (Math.abs(wd(o.x, s.x)) > 260 || Math.abs(wd(o.y, s.y)) > 260) continue;
 
         // head-on: settled purely by size, no matter who charged
         const hr = s.headR + o.headR;
         const hdx = wd(o.x, s.x), hdy = wd(o.y, s.y);
         if (hdx * hdx + hdy * hdy < hr * hr) {
-          killSnake(s.segCount > o.segCount ? o : s);
+          const loser = s.segCount > o.segCount ? o : s;
+          killSnake(loser, loser === s ? o : s);
           if (!s.alive) break;
           continue;
         }
@@ -501,8 +617,11 @@
         for (let i = 1; i < neck; i++) {
           const dx = wd(segs[i].x, s.x), dy = wd(segs[i].y, s.y);
           if (dx * dx + dy * dy < kill) {
-            // the SMALLER snake loses; a tie goes against the one that rammed
-            killSnake(s.segCount > o.segCount ? o : s);
+            // s bit o's neck: the bite wins outright, size no object. Under the
+            // old rule this was settled by length, which is what made the
+            // longest snake unbeatable.
+            const loser = cfg.neckBite ? o : (s.segCount > o.segCount ? o : s);
+            killSnake(loser, loser === s ? o : s);
             fought = true;
             break;
           }
@@ -528,6 +647,7 @@
   function simulate(dt) {
     for (const s of snakes) {
       if (!s.alive) { s.respawn -= dt; continue; }
+      if (s.shield > 0) s.shield -= dt;
       if (s.isPlayer) {
         const ka = keyAngle(); const pa = pointerAngle();
         if (ka !== null) s.targetAngle = ka; else if (pa !== null) s.targetAngle = pa;
@@ -554,9 +674,23 @@
       if (!s.alive && !s.isPlayer && s.respawn <= 0) snakes.splice(i, 1);
     }
     topUpEnemies();
-    // trim from the front (oldest ambient) so fresh death-drop food survives
-    if (foods.length > cfg.food) foods.splice(0, foods.length - cfg.food);
-    while (foods.length < cfg.food) spawnFoodAt(rnd(0, WORLD), rnd(0, WORLD));
+    refreshRivals(dt);
+    // Two separate stocks. Plain fruit is held at cfg.food; a kill's payout
+    // sits on top of it with its own cap. Counting them together meant one big
+    // fight swept every fruit off the map -- and trimming the payout instead
+    // threw away the reward before anyone could reach it.
+    let ambient = 0, payout = 0;
+    for (const f of foods) ((f.val || 1) > 1 ? payout++ : ambient++);
+    for (let i = 0; i < foods.length && ambient > cfg.food;) {
+      if ((foods[i].val || 1) <= 1) { foods.splice(i, 1); ambient--; } else i++;
+    }
+    for (let i = 0; i < foods.length && payout > PAYOUT_CAP;) {
+      if ((foods[i].val || 1) > 1) { foods.splice(i, 1); payout--; } else i++;
+    }
+    while (ambient < cfg.food) { spawnFoodAt(rnd(0, WORLD), rnd(0, WORLD)); ambient++; }
+
+    rankTimer -= dt;
+    if (rankTimer <= 0) { rankTimer = 0.25; updateRank(); }
 
     // camera eases toward the player; zoom out slightly as it grows
     camX = player.x; camY = player.y;
@@ -634,6 +768,13 @@
     ctx.moveTo(hx + px * hr * 0.7, hy + py * hr * 0.7);
     ctx.lineTo(hx + px * hr * 1.4, hy + py * hr * 1.4);
     ctx.stroke();
+    // spawn truce: a pulsing ring, so it is obvious why nothing is biting yet
+    if (s.shield > 0) {
+      const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 90);
+      ctx.strokeStyle = 'rgba(255,255,255,' + (0.35 + 0.45 * pulse).toFixed(3) + ')';
+      ctx.lineWidth = Math.max(2, hr * 0.22);
+      ctx.beginPath(); ctx.arc(hx, hy, hr * (1.5 + 0.18 * pulse), 0, 7); ctx.stroke();
+    }
     // length number floating above the head, so you can size up rivals
     const fs = Math.max(12, hr * 1.05);
     ctx.font = '900 ' + fs.toFixed(0) + 'px system-ui, sans-serif';
@@ -671,7 +812,13 @@
   function gameOver() {
     state = 'over';
     if (player.segCount > best) { best = player.segCount; localStorage.setItem(BEST_KEY, best); document.getElementById('best').textContent = 'さいこう: ' + best; }
-    document.getElementById('over-msg').textContent = 'ながさ: ' + player.segCount;
+    const r = playerRank();
+    let msg = 'ながさ: ' + player.segCount + '（じゅんい ' + r.pos + '/' + r.of + '）';
+    if (player.kills) {
+      msg += '<br>たおした: ' + player.kills + 'ひき';
+      if (player.bestKill > player.segCount) msg += '<br>じぶんより 大きい ' + player.bestKill + ' も たおした！';
+    }
+    document.getElementById('over-msg').innerHTML = msg;
     document.getElementById('over').classList.remove('hidden');
     boostBtn.classList.add('hidden');
     sfxOver();
@@ -687,6 +834,10 @@
     { key: 'growth', label: 'のびる はやさ', min: 0.15, max: 1, step: 0.01, fmt: (v) => v.toFixed(2) },
     { key: 'rival', label: 'てきの つよさ', min: 0.5, max: 2, step: 0.05, fmt: (v) => v.toFixed(2) + '×' },
     { key: 'vital', label: 'きゅうしょの ながさ', min: 1, max: 12, step: 1 },
+    { key: 'agility', label: 'ながいと にぶくなる', min: 0, max: 1, step: 0.05, fmt: (v) => Math.round(v * 100) + '%' },
+    { key: 'boostCost', label: 'ダッシュの ねだん', min: 0.2, max: 3, step: 0.1, fmt: (v) => v.toFixed(1) + '×' },
+    { key: 'slowGrow', label: 'おおきくなりにくさ', min: 0, max: 2, step: 0.1, fmt: (v) => v.toFixed(1) + '×' },
+    { key: 'neckBite', label: 'くびを かまれたら まけ', type: 'toggle' },
   ];
   const cfgPanel = document.getElementById('cfg');
   const cfgRows = document.getElementById('cfg-rows');
@@ -697,6 +848,18 @@
     const nm = document.createElement('span'); nm.textContent = spec.label;
     const vv = document.createElement('span'); vv.className = 'val';
     lab.append(nm, vv);
+    if (spec.type === 'toggle') {
+      const btn = document.createElement('button'); btn.className = 'toggle';
+      const paint = () => {
+        btn.textContent = cfg[spec.key] ? 'ON' : 'OFF';
+        btn.classList.toggle('on', !!cfg[spec.key]);
+        vv.textContent = '';
+      };
+      btn.addEventListener('click', () => { cfg[spec.key] = cfg[spec.key] ? 0 : 1; paint(); markPreset(); saveCfg(); });
+      row.append(lab, btn); cfgRows.appendChild(row);
+      cfgInputs[spec.key] = { set: paint };
+      return;
+    }
     const inp = document.createElement('input');
     inp.type = 'range'; inp.min = spec.min; inp.max = spec.max; inp.step = spec.step;
     const fmt = spec.fmt || ((v) => String(v));
@@ -733,6 +896,13 @@
     get enemies() { return snakes.filter((s) => !s.isPlayer && s.alive).length; },
     get enemyLens() { return snakes.filter((s) => !s.isPlayer && s.alive).map((s) => s.segCount).sort((a, b) => b - a); },
     get cfg() { return Object.assign({}, cfg); },
+    get rank() { return player ? playerRank() : null; },
+    get kills() { return player ? player.kills : 0; },
+    get bestKill() { return player ? player.bestKill : 0; },
+    get speedMul() { return player ? speedMul(player.segCount) : 1; },
+    get turnRate() { return player ? turnRateFor(player.segCount) : 0; },
+    get boostBurn() { return player ? boostBurn(player.segCount) : 0; },
+    get fruitWorth() { return player ? growthFor(player.segCount) : 0; },
     setCfg(k, v) { cfg[k] = v; saveCfg(); if (state === 'play') topUpEnemies(); },
     // how much of the body actually got sampled this frame vs how much it owes
     get segsDrawn() { return player && player._segs ? player._segs.length : 0; },
@@ -759,6 +929,21 @@
       return ba === null ? null : { angle: ba, len: blen };
     },
     aimNearestBody() { const r = this.aimNearest(false); return r ? r.angle : null; },
+    // test helper: aim at the neck of the nearest snake LONGER than us -- the
+    // shot that is only possible once a bite beats size
+    aimBigNeck() {
+      if (!player) return null;
+      let ba = null, bd = Infinity;
+      for (const o of snakes) {
+        if (o === player || !o.alive || o.shield > 0 || o.segCount <= player.segCount) continue;
+        const segs = o._segs || [];
+        for (let i = 1; i < Math.min(segs.length, cfg.vital + 1); i++) {
+          const dx = wd(segs[i].x, player.x), dy = wd(segs[i].y, player.y), d = dx * dx + dy * dy;
+          if (d < bd) { bd = d; ba = Math.atan2(dy, dx); }
+        }
+      }
+      return ba;
+    },
   };
 
   // ---- boot --------------------------------------------------------
